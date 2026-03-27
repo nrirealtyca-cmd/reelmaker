@@ -1,6 +1,7 @@
 // ============================================================
-// ReelMaker — server.js v2.3 (Session 5)
-// Express backend: Auth, Google Photos API, FFmpeg pipeline, AI Captions
+// ReelMaker — server.js v2.4 (Session 6)
+// Express backend: Auth, Google Photos API, FFmpeg pipeline,
+//                  AI Captions (Google Gemini — free tier)
 // ============================================================
 
 require('dotenv').config();
@@ -22,6 +23,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
 // Build base URL from Railway domain or fallback
 const BASE_URL = process.env.RAILWAY_PUBLIC_DOMAIN
@@ -162,7 +164,7 @@ app.get('/health', (req, res) => {
     outWritable,
     base: BASE_URL,
     oauth: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
-    captionApi: !!ANTHROPIC_API_KEY,
+    captionApi: GEMINI_API_KEY ? 'gemini' : 'demo',
     activeJobs: ffmpegQueue.active,
     queuedJobs: ffmpegQueue.pending,
     totalTrackedJobs: Object.keys(jobs).length
@@ -321,46 +323,17 @@ app.post('/api/disconnect', async (req, res) => {
   res.json({ success: true });
 });
 
-// ─── AI Caption Generation ───────────────────────────────────
-
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
-
-// Diagnostic endpoint — test Claude API connectivity
-app.get('/api/captions/test', async (req, res) => {
-  if (!ANTHROPIC_API_KEY) {
-    return res.json({ status: 'no_key', keyLength: 0 });
-  }
-  try {
-    const body = JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 50,
-      messages: [{ role: 'user', content: 'Reply with just the word "hello"' }]
-    });
-    const response = await fetchJSON('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body
-    });
-    const text = response.content?.map(b => b.text).join('') || '';
-    res.json({ status: 'ok', response: text, keyPrefix: ANTHROPIC_API_KEY.substring(0, 10) + '...' });
-  } catch (err) {
-    res.json({ status: 'error', error: err.message, keyPrefix: ANTHROPIC_API_KEY.substring(0, 10) + '...' });
-  }
-});
+// ─── AI Captions (Google Gemini — free tier) ─────────────────
 
 app.post('/api/captions', async (req, res) => {
-  const { items, style = 'both' } = req.body;
+  const { items } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'No items provided' });
   }
 
-  // If no API key, return demo captions
-  if (!ANTHROPIC_API_KEY) {
+  // If no Gemini API key, return demo captions
+  if (!GEMINI_API_KEY) {
     return res.json({
       captions: generateDemoCaptions(items),
       source: 'demo'
@@ -396,27 +369,29 @@ Generate exactly 2 captions in JSON format:
 Respond with ONLY valid JSON, no markdown, no backticks:
 {"engaging": "your engaging caption here", "professional": "your professional caption here"}`;
 
-    const response = await fetchJSON('https://api.anthropic.com/v1/messages', {
+    // Call Google Gemini REST API (free tier — no SDK needed)
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    const geminiResponse = await fetchJSON(geminiUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: prompt }]
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024
+        }
       })
     });
 
-    // Extract text from response
-    const text = response.content
-      .filter(block => block.type === 'text')
-      .map(block => block.text)
-      .join('');
+    // Extract text from Gemini response
+    const text = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    // Parse JSON from response
+    if (!text) {
+      throw new Error('Empty response from Gemini API');
+    }
+
+    // Parse JSON from response (strip markdown fences if present)
     const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const captions = JSON.parse(cleaned);
 
@@ -433,6 +408,45 @@ Respond with ONLY valid JSON, no markdown, no backticks:
   }
 });
 
+// Test endpoint for caption API connectivity
+app.get('/api/captions/test', async (req, res) => {
+  if (!GEMINI_API_KEY) {
+    return res.json({
+      status: 'demo',
+      message: 'No GEMINI_API_KEY set — using demo captions',
+      keyPrefix: 'not set'
+    });
+  }
+
+  try {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    const response = await fetchJSON(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Say "ReelMaker captions ready!" in exactly 5 words.' }] }],
+        generationConfig: { maxOutputTokens: 50 }
+      })
+    });
+
+    const text = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    res.json({
+      status: 'ok',
+      model: 'gemini-2.5-flash',
+      response: text.trim(),
+      keyPrefix: GEMINI_API_KEY.slice(0, 8) + '...'
+    });
+  } catch (err) {
+    res.json({
+      status: 'error',
+      error: err.message,
+      keyPrefix: GEMINI_API_KEY.slice(0, 8) + '...'
+    });
+  }
+});
+
 function generateDemoCaptions(items) {
   const count = items.length;
   const filenames = items
@@ -445,8 +459,8 @@ function generateDemoCaptions(items) {
     : '';
 
   return {
-    engaging: `✨ ${count} moments, one amazing reel!${nameHint} Drop a ❤️ if this made you smile!\n\n#ReelMaker #InstaReel #Memories #PhotoSlideshow #Viral`,
-    professional: `A curated collection of ${count} moments${nameHint}, brought together in a seamless visual story.\n\n#ContentCreation #VisualStorytelling #ReelMaker`
+    engaging: `✨ Just made this ${count}-photo reel${nameHint}! Check out these moments 📸🔥 #ReelMaker #ContentCreator #PhotoDump #ViralReel`,
+    professional: `A curated collection of ${count} moments${nameHint}. Created with ReelMaker. #Photography #ContentCreation #ReelMaker`
   };
 }
 
@@ -860,14 +874,8 @@ function fetchJSON(url, options = {}) {
       port: urlObj.port,
       path: urlObj.pathname + urlObj.search,
       method: options.method || 'GET',
-      headers: { ...options.headers }
+      headers: options.headers || {}
     };
-
-    // Set Content-Length for request bodies (required by some APIs like Anthropic)
-    if (options.body) {
-      const bodyBuffer = Buffer.from(options.body);
-      reqOptions.headers['Content-Length'] = bodyBuffer.length;
-    }
 
     const req = transport.request(reqOptions, (res) => {
       let body = '';
@@ -926,9 +934,10 @@ function downloadFile(url, destPath) {
 // ─── Start Server ────────────────────────────────────────────
 
 app.listen(PORT, () => {
-  console.log(`\n🎬 ReelMaker v2.2 — ${BASE_URL}`);
+  console.log(`\n🎬 ReelMaker v2.4 — ${BASE_URL}`);
   console.log(`   FFmpeg queue: max 1 concurrent job`);
   console.log(`   OAuth: ${GOOGLE_CLIENT_ID ? 'configured' : 'demo mode only'}`);
+  console.log(`   Captions: ${GEMINI_API_KEY ? 'Gemini AI (free tier)' : 'demo mode only'}`);
   console.log(`   Tmp: ${TMP_DIR}`);
   console.log(`   Output: ${OUT_DIR}\n`);
 });
