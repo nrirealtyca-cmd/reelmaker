@@ -1,0 +1,6 @@
+node_modules
+.git
+.env
+tmp/*
+public/output/*
+*.md
