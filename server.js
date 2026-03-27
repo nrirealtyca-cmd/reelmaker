@@ -325,6 +325,33 @@ app.post('/api/disconnect', async (req, res) => {
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
+// Diagnostic endpoint — test Claude API connectivity
+app.get('/api/captions/test', async (req, res) => {
+  if (!ANTHROPIC_API_KEY) {
+    return res.json({ status: 'no_key', keyLength: 0 });
+  }
+  try {
+    const body = JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 50,
+      messages: [{ role: 'user', content: 'Reply with just the word "hello"' }]
+    });
+    const response = await fetchJSON('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body
+    });
+    const text = response.content?.map(b => b.text).join('') || '';
+    res.json({ status: 'ok', response: text, keyPrefix: ANTHROPIC_API_KEY.substring(0, 10) + '...' });
+  } catch (err) {
+    res.json({ status: 'error', error: err.message, keyPrefix: ANTHROPIC_API_KEY.substring(0, 10) + '...' });
+  }
+});
+
 app.post('/api/captions', async (req, res) => {
   const { items, style = 'both' } = req.body;
 
