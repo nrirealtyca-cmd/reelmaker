@@ -1,5 +1,5 @@
 # ReelMaker — Project Context (Session Handoff)
-## Last Updated: March 26, 2026 — Session 5
+## Last Updated: March 27, 2026 — Session 5
 
 ---
 
@@ -10,8 +10,8 @@
 - **Live URL**: https://reelmaker-production.up.railway.app/
 - **GitHub repo**: https://github.com/nrirealtyca-cmd/reelmaker
 - **Local path**: /Users/chandniroy/Documents/ReelMaker/files_ReelMaker_10_45/reelmaker-app
-- **Hosting**: Railway (Dockerfile-based deploy)
-- **Stack**: React 18 (CDN, no build step) + Express.js (Node 20+) + FFmpeg + Claude API
+- **Hosting**: Railway (Dockerfile-based deploy, auto-deploys from GitHub `main` branch)
+- **Stack**: React 18 (CDN, no build step) + Express.js (Node 20+) + FFmpeg + Claude API (Sonnet)
 
 ### Design System
 | Token       | Value     | Usage               |
@@ -31,7 +31,7 @@
 | AC-02| Select max 10 items                       | ✅ Done (Session 1) |
 | AC-03| FFmpeg video stitching (Reel + Short)     | ✅ Done (Session 2), Fixed Sessions 3 & 4 |
 | AC-04| Validation — H.264, 1080×1920, 30fps     | ✅ Done (Session 2), Fixed Sessions 3 & 4 |
-| AC-05| AI Captioning (post captions)             | ✅ Done (Session 5) |
+| AC-05| AI Post Captions                          | ✅ Done (Session 5) — debugging API connectivity |
 | UC-05| Download & Share                          | ⚠️ Download works, Web Share API added, deep links not built |
 
 ---
@@ -54,16 +54,14 @@
 
 ### Session 3 — Railway Deploy Fixes
 **5 bugs fixed:**
-1. `exec()` shell escaping — switched to `spawn()` with args array
-2. Missing `maxBuffer` — `spawn()` uses streams, remaining `execSync` calls got 10MB
-3. Real photos never downloaded — added `downloadRealMedia()` function
-4. No access token passed to `/api/generate` — now reads `x-session-id` header
-5. Static file serving for `.mp4` — dedicated `/output` route with proper headers
-
-**Bonus:** Replaced `nixpacks.toml` with `Dockerfile` (node:20-slim + apt-get ffmpeg)
+1. `exec()` shell escaping → `spawn()` with args array
+2. Missing `maxBuffer` → streams via `spawn()`, 10MB for remaining `execSync`
+3. Real photos never downloaded → `downloadRealMedia()` function
+4. No access token passed to `/api/generate` → reads `x-session-id` header
+5. Static file serving for `.mp4` → dedicated `/output` route with proper headers
+**Bonus:** Replaced `nixpacks.toml` with `Dockerfile`
 
 ### Session 4 — FFmpeg OOM Fix
-**Problem:** FFmpeg OOM-killed on Railway.
 **Fixes:**
 1. `JobQueue` class — max 1 concurrent FFmpeg encode
 2. `settb=1/30` — normalized timebase before xfade
@@ -72,16 +70,17 @@
 5. Hardened `runFFmpegSpawn` — OOM, 0-byte, timeout detection
 
 ### Session 5 — AI Post Captions (Current)
-**Feature:** AI-generated Instagram/YouTube post captions (not burned into video).
-
 **What was built:**
-1. **`/api/captions` endpoint** — Accepts photo metadata, calls Claude API (Sonnet) to generate 2 caption styles. Falls back to template-based demo captions when `ANTHROPIC_API_KEY` is not set.
-2. **`CaptionsScreen` component** — New screen between processing and preview. Two style tabs (Engaging / Professional), editable textarea, copy button, character count.
-3. **Caption on PreviewScreen** — Selected caption displayed with copy-to-clipboard at top of preview.
-4. **Parallel generation** — Captions fetched while video encodes (non-blocking).
-5. **Updated state machine** — `processing → captions → preview`
+1. **`/api/captions` endpoint** — Calls Claude API (Sonnet) with photo metadata to generate 2 caption styles (Engaging + Professional). Falls back to template-based demo captions without `ANTHROPIC_API_KEY`.
+2. **`/api/captions/test` diagnostic endpoint** — Tests Claude API connectivity and returns error details.
+3. **`CaptionsScreen` component** — New screen between processing and preview. Two style tabs, editable textarea, copy button, character count, skip/use buttons.
+4. **Caption on PreviewScreen** — Selected caption displayed with copy-to-clipboard.
+5. **Parallel generation** — Captions fetched while video encodes (non-blocking).
+6. **Updated state machine** — `processing → captions → preview`
+7. **`fetchJSON` fix** — Added `Content-Length` header for POST bodies (required by Anthropic API).
+8. **`deploy.sh` script** — Automates file copy + git commit + push workflow.
 
-**Files changed:** `server.js` (v2.2.1 → v2.3), `public/index.html`
+**Current status:** Debugging Claude API connectivity from Railway — API key is set (`captionApi: true` in health check), but calls may be failing. Diagnostic endpoint added at `/api/captions/test` to identify the error.
 
 ---
 
@@ -89,15 +88,16 @@
 
 ```
 reelmaker-app/
-├── server.js              ← Express backend (902 lines) — Auth, Photos API, FFmpeg, AI Captions
+├── server.js              ← Express backend (934 lines) — Auth, Photos API, FFmpeg, AI Captions
 ├── Dockerfile             ← node:20-slim + FFmpeg + fonts-dejavu-core
 ├── .dockerignore
 ├── .gitignore
 ├── package.json           ← express, cors, dotenv
 ├── package-lock.json
-├── BRD.md                 ← Business Requirements Document
-├── PRD.md                 ← Product Requirements Document
-├── ARCHITECTURE.md        ← Architecture Document
+├── deploy.sh              ← Deployment script (copies files from ~/Downloads + git push)
+├── BRD.md                 ← Business Requirements Document v2.1
+├── PRD.md                 ← Product Requirements Document v2.1
+├── ARCHITECTURE.md        ← Architecture Document v2.1
 ├── SESSION_CONTEXT.md     ← This file — session handoff context
 ├── public/
 │   ├── index.html         ← Full React 18 app via CDN + Babel (642 lines)
@@ -112,13 +112,14 @@ reelmaker-app/
 
 | Method | Path                        | Auth     | Description                              |
 |--------|-----------------------------|----------|------------------------------------------|
-| GET    | `/health`                   | None     | FFmpeg status, libx264, disk, queue, captionApi |
+| GET    | `/health`                   | None     | FFmpeg, libx264, disk, queue, captionApi |
 | GET    | `/auth/google/url`          | None     | Start OAuth flow → returns authUrl        |
 | GET    | `/auth/google/callback`     | None     | OAuth callback → redirects with session   |
 | GET    | `/api/profile`              | Session  | User name/email/picture                   |
 | GET    | `/api/photos`               | Session  | Paginated media library (50/page)         |
 | POST   | `/api/disconnect`           | Session  | Revoke token, clear session               |
 | POST   | `/api/captions`             | None     | AI caption generation (2 styles)          |
+| GET    | `/api/captions/test`        | None     | Diagnostic — test Claude API connectivity |
 | POST   | `/api/generate`             | Session* | Start video generation job → returns jobId|
 | GET    | `/api/generate/:jobId`      | None     | Poll job status/progress/urls             |
 | GET    | `/output/:filename`         | None     | Serve .mp4 with proper Content-Type       |
@@ -136,7 +137,7 @@ POST /api/generate { items, photoDuration }
   │   └─ generateDemoImages() → solid-color 1080×1920 JPGs via FFmpeg lavfi
   │
   ├─ Real mode (authenticated):
-  │   └─ downloadRealMedia() → re-fetches baseUrls (anti-expiry), downloads via Google Photos
+  │   └─ downloadRealMedia() → re-fetches baseUrls, downloads via Google Photos
   │       ├─ Photos: baseUrl=w1080-h1920 → .jpg
   │       └─ Videos: baseUrl=dv → .mp4 → trim to 3s at 1080×1920
   │
@@ -163,9 +164,9 @@ POST /api/captions { items }
   │
   └─ With ANTHROPIC_API_KEY:
       └─ Build prompt from photo metadata (filenames, dates, dimensions, camera)
-      └─ Call Claude API (claude-sonnet-4-20250514, max_tokens 1024)
+      └─ POST api.anthropic.com/v1/messages (claude-sonnet-4-20250514, max_tokens 1024)
       └─ Parse JSON response → { engaging, professional }
-      └─ Fallback to demo captions on error
+      └─ On error: fallback to generateDemoCaptions() + error field in response
 ```
 
 ---
@@ -204,77 +205,93 @@ preview → (Download Reel / Download Short / Copy Caption)
 |-----------------------|----------|------------------------------------|
 | `GOOGLE_CLIENT_ID`    | For real photos | Google OAuth 2.0 client ID  |
 | `GOOGLE_CLIENT_SECRET`| For real photos | Google OAuth 2.0 secret     |
-| `ANTHROPIC_API_KEY`   | For AI captions | Claude API key (falls back to demo captions without) |
+| `ANTHROPIC_API_KEY`   | For AI captions | Claude API key (sk-ant-...) — get from console.anthropic.com |
 | `RAILWAY_PUBLIC_DOMAIN`| Auto-set by Railway | Used to build BASE_URL |
 
 ---
 
 ## DEPLOY INSTRUCTIONS
 
+### Using deploy.sh (recommended)
+
+```bash
+# First time: copy deploy.sh to project and make executable
+cp ~/Downloads/deploy.sh /Users/chandniroy/Documents/ReelMaker/files_ReelMaker_10_45/reelmaker-app/deploy.sh
+chmod +x /Users/chandniroy/Documents/ReelMaker/files_ReelMaker_10_45/reelmaker-app/deploy.sh
+
+# Deploy (picks up files from ~/Downloads automatically)
+cd /Users/chandniroy/Documents/ReelMaker/files_ReelMaker_10_45/reelmaker-app
+bash deploy.sh "commit message here"
+```
+
+The script automatically copies any of these files from `~/Downloads/` if they exist:
+`server.js`, `index.html`, `Dockerfile`, `package.json`, `SESSION_CONTEXT.md`, `BRD.md`, `ARCHITECTURE.md`, `PRD.md`
+
+### Manual deploy
+
 ```bash
 cd /Users/chandniroy/Documents/ReelMaker/files_ReelMaker_10_45/reelmaker-app
-
-# Copy updated files
 cp ~/Downloads/server.js ./server.js
-cp ~/Downloads/index.html ./public/index.html
-
-# Deploy
+# ... copy other changed files ...
 git add -A
-git commit -m "description of change"
+git commit -m "description"
 git push
 ```
 
-Railway auto-deploys from GitHub (`main` branch). After deploy (~2 min), verify:
-```bash
-curl https://reelmaker-production.up.railway.app/health
-# Should show: ffmpeg: true, libx264: true, captionApi: true/false, queuedJobs: 0
-```
+### Full clean deploy (nuclear option)
 
-### Full Clean Deploy (when replacing all files)
 ```bash
 cd /Users/chandniroy/Documents/ReelMaker/files_ReelMaker_10_45/reelmaker-app
-
-# Remove all except .git
 ls -A | grep -v '^\\.git$' | xargs rm -rf
-
-# Copy new files
-cp ~/Downloads/reelmaker-app/server.js ./server.js
-cp ~/Downloads/reelmaker-app/package.json ./package.json
-cp ~/Downloads/reelmaker-app/Dockerfile ./Dockerfile
-cp ~/Downloads/reelmaker-app/.dockerignore ./.dockerignore
-cp ~/Downloads/reelmaker-app/.gitignore ./.gitignore
-mkdir -p public/output
-cp ~/Downloads/reelmaker-app/public/index.html ./public/index.html
-touch ./public/output/.gitkeep
-
-# Generate lock file if missing
-npm install
-
+# ... copy all files from tar/downloads ...
+npm install  # if package-lock.json was deleted
 git add -A
 git commit -m "description"
 git push --force
+```
+
+**Note:** If `.git` gets deleted, reinitialize:
+```bash
+git init
+git remote add origin https://github.com/nrirealtyca-cmd/reelmaker.git
+git add -A
+git commit -m "description"
+git branch -M main
+git push --force origin main
+git push --set-upstream origin main
+```
+
+### Post-deploy verification
+
+```bash
+curl https://reelmaker-production.up.railway.app/health
+# Expect: ffmpeg: true, libx264: true, captionApi: true, queuedJobs: 0
 ```
 
 ---
 
 ## WHAT'S NEXT (Priority Order)
 
-### 1. UC-05: Share Enhancement
+### 1. Debug Caption API Connectivity
+- `ANTHROPIC_API_KEY` is set (`captionApi: true` in health)
+- API calls falling back to demo captions — diagnostic endpoint added
+- Test with: `curl https://reelmaker-production.up.railway.app/api/captions/test`
+
+### 2. UC-05: Share Enhancement
 - Download works, Web Share API works on supported devices
 - TODO: Deep link share buttons for Instagram and YouTube
 
-### 2. Production Hardening
+### 3. Production Hardening
 - Session store is in-memory `Map()` — resets on every Railway deploy. Consider Redis
 - Output files on Railway's ephemeral filesystem — lost on redeploy. Consider cloud storage (GCS/S3)
 - No rate limiting on `/api/generate` or `/api/captions`
-- Google Photos `baseUrl` expiry — now re-fetched at generation time via `batchGet`
 
-### 3. UX Improvements
+### 4. UX Improvements
 - Photo duration slider (currently hardcoded at 3s per photo)
 - Transition style picker (currently only fade; FFmpeg xfade supports ~40 transitions)
 - Background music upload or selection
+- Caption regeneration button
 - Mobile responsiveness improvements
-- Caption regeneration button (re-call AI for new options)
 
 ---
 
@@ -282,30 +299,31 @@ git push --force
 
 1. **Railway ephemeral disk**: Generated .mp4 files survive during container lifetime (auto-cleaned after 1hr) but lost on redeploy
 2. **In-memory session store**: All sessions lost on redeploy — users must re-authenticate
-3. **Single-item generation**: Duplicates the item so xfade has a pair — works but untested in production
-4. **Video input handling**: Video clips trimmed to 3s to match photo duration — no user control
-5. **Short is stream-copied from Reel**: If Reel is <60s, Short is identical to Reel
-6. **Railway memory**: Container must have enough RAM for 1080×1920 x264 ultrafast single-thread encode
-7. **Caption API fallback**: Without `ANTHROPIC_API_KEY`, captions use a template — functional but not personalized
+3. **Caption API debugging**: API key configured but calls may fail — `/api/captions/test` endpoint will reveal the error
+4. **Single-item generation**: Duplicates the item so xfade has a pair — works but untested in production
+5. **Video input handling**: Video clips trimmed to 3s to match photo duration — no user control
+6. **Short is stream-copied from Reel**: If Reel is <60s, Short is identical to Reel
+7. **Railway memory**: Container must have enough RAM for 1080×1920 x264 ultrafast single-thread encode
 
 ---
 
-## COMPLETE CODEBASE
+## COMPLETE CODEBASE REFERENCE
 
-### server.js (v2.3 — 902 lines)
-**Location**: `reelmaker-app/server.js`
+### server.js (v2.3 — 934 lines)
 **Role**: Express backend — OAuth, Google Photos API, FFmpeg pipeline, job queue, AI captions
 
 **Key modules:**
 - `JobQueue` class — concurrency-limited async job queue (max 1 FFmpeg process)
+- `GET /api/captions/test` — diagnostic endpoint for Claude API connectivity
 - `POST /api/captions` — Claude API integration for AI post caption generation (2 styles)
-- `generateDemoCaptions()` — template fallback when no API key
+- `generateDemoCaptions()` — template fallback when no API key or on error
 - `runGenerationPipeline()` — orchestrates download → encode → validate → serve
 - `downloadRealMedia()` — fetches fresh baseUrls via batchGet, downloads photos/videos
 - `generateDemoImages()` — creates colored rectangle JPGs for demo mode
 - `buildStitchArgs()` — constructs FFmpeg filter_complex with normalize + xfade chain
 - `runFFmpegSpawn()` — spawns FFmpeg with timeout, OOM detection, 0-byte detection
 - `validateVideo()` — ffprobe validation of output specs
+- `fetchJSON()` — HTTPS client with Content-Length for POST bodies
 
 **Encoding config:**
 ```
@@ -314,7 +332,6 @@ libx264 | ultrafast | -tune stillimage | -crf 28 | yuv420p | 30fps
 ```
 
 ### public/index.html (v2.3 — 642 lines)
-**Location**: `reelmaker-app/public/index.html`
 **Role**: Full React 18 SPA via CDN (no build step)
 
 **Components:**
@@ -326,12 +343,11 @@ libx264 | ultrafast | -tune stillimage | -crf 28 | yuv420p | 30fps
 - `CaptionsScreen` — AI caption editor (2 styles: engaging/professional), copy, skip/use
 - `PreviewScreen` — caption card + dual video players, download buttons, Web Share API
 
-**External dependencies (CDN):**
-- React 18.2.0 + ReactDOM (production builds)
-- Babel Standalone 7.23.9 (in-browser JSX transform)
-- Google Fonts: Sora + DM Sans
+### deploy.sh
+**Role**: Deployment automation — copies files from `~/Downloads/` into project, commits, pushes
+**Usage**: `bash deploy.sh "commit message"`
 
-### Dockerfile (25 lines)
+### Dockerfile
 ```dockerfile
 FROM node:20-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
@@ -352,29 +368,7 @@ CMD ["node", "server.js"]
   "version": "2.2.0",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.0"
-  },
+  "dependencies": { "cors": "^2.8.5", "dotenv": "^16.4.5", "express": "^4.21.0" },
   "engines": { "node": ">=20.0.0" }
 }
-```
-
-### .gitignore
-```
-node_modules/
-.env
-tmp/
-public/output/*.mp4
-```
-
-### .dockerignore
-```
-node_modules
-.git
-.env
-tmp/*
-public/output/*
-*.md
 ```
