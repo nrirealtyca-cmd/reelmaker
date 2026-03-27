@@ -833,8 +833,14 @@ function fetchJSON(url, options = {}) {
       port: urlObj.port,
       path: urlObj.pathname + urlObj.search,
       method: options.method || 'GET',
-      headers: options.headers || {}
+      headers: { ...options.headers }
     };
+
+    // Set Content-Length for request bodies (required by some APIs like Anthropic)
+    if (options.body) {
+      const bodyBuffer = Buffer.from(options.body);
+      reqOptions.headers['Content-Length'] = bodyBuffer.length;
+    }
 
     const req = transport.request(reqOptions, (res) => {
       let body = '';
