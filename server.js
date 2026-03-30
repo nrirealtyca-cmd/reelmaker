@@ -399,7 +399,18 @@ Respond with ONLY valid JSON, no markdown:
       generationConfig: {
         temperature: 0.9,
         maxOutputTokens: 2048,
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            engaging:      { type: 'STRING' },
+            professional:  { type: 'STRING' },
+            witty:         { type: 'STRING' },
+            inspirational: { type: 'STRING' },
+            storyteller:   { type: 'STRING' }
+          },
+          required: ['engaging', 'professional', 'witty', 'inspirational', 'storyteller']
+        }
       }
     });
 
@@ -440,14 +451,27 @@ Respond with ONLY valid JSON, no markdown:
       }
     }
 
-    // Validate all 5 tones present
-    const missing = toneKeys.filter(k => !captions[k]);
-    if (missing.length > 0) {
-      throw new Error(`Missing tones: ${missing.join(', ')}`);
+    // Log what Gemini actually returned
+    const returnedKeys = Object.keys(captions).filter(k => captions[k]);
+    console.log(`[Captions] Gemini returned keys: ${returnedKeys.join(', ') || 'none'}`);
+    console.log(`[Captions] Raw Gemini text (first 500 chars): ${text.slice(0, 500)}`);
+
+    // Merge: use AI captions where available, fill gaps from demo
+    const demoCaptions = generateDemoCaptions(items, platform);
+    const merged = {};
+    let aiCount = 0;
+    for (const key of toneKeys) {
+      if (captions[key] && captions[key].trim().length > 10) {
+        merged[key] = captions[key];
+        aiCount++;
+      } else {
+        merged[key] = demoCaptions[key];
+      }
     }
 
-    console.log('[Captions] Gemini AI — 5 tones generated successfully');
-    res.json({ captions, tones: toneKeys, source: 'ai' });
+    const source = aiCount === 5 ? 'ai' : aiCount > 0 ? 'ai-partial' : 'fallback';
+    console.log(`[Captions] ${source}: ${aiCount}/5 tones from Gemini`);
+    res.json({ captions: merged, tones: toneKeys, source });
 
   } catch (err) {
     console.error('[Captions] Gemini generation failed:', err.message);
