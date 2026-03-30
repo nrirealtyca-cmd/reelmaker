@@ -536,21 +536,29 @@
       const [loading, setLoading] = useState(!captionData);
       const [regenerating, setRegenerating] = useState(false);
       const [copied, setCopied] = useState(false);
+      const [error, setError] = useState(null);
 
       useEffect(() => {
         if (captionData && captionData.captions) {
+          // When regenerating, replace all captions; otherwise only fill empty ones
           setEditedCaptions(prev => {
-            // Only set tones that haven't been manually edited
+            if (regenerating) return { ...captionData.captions };
             const updated = { ...prev };
             Object.keys(captionData.captions).forEach(key => {
-              if (!updated[key] || regenerating) {
-                updated[key] = captionData.captions[key];
-              }
+              if (!updated[key]) updated[key] = captionData.captions[key];
             });
             return updated;
           });
           setLoading(false);
           setRegenerating(false);
+          // Show error banner if it fell back
+          if (captionData.source === 'fallback' && captionData.error) {
+            setError('AI captions unavailable — showing templates. Try regenerating.');
+          } else if (captionData.source === 'ai-partial') {
+            setError('Some tones fell back to templates. AI returned partial results.');
+          } else {
+            setError(null);
+          }
         }
       }, [captionData]);
 
@@ -579,6 +587,7 @@
       function handleRegenerate() {
         setRegenerating(true);
         setEditedCaptions({});
+        setError(null);
         onRegenerate();
       }
 
@@ -592,12 +601,29 @@
         );
       }
 
+      const sourceLabel = source === 'ai' ? '🤖 AI-generated' : source === 'ai-partial' ? '🤖 AI (partial)' : source === 'demo' ? '📝 Demo' : '📝 Template';
+
       return (
         <div style={{ paddingTop: '4vh', maxWidth: 640, margin: '0 auto' }}>
+          {/* Error banner */}
+          {error && (
+            <div style={{
+              background: '#2a1a1a', border: '1px solid #5a2a2a', borderRadius: 10,
+              padding: '10px 16px', marginBottom: 16, fontSize: 14, color: '#ff8a8a',
+              display: 'flex', alignItems: 'center', gap: 8
+            }}>
+              <span>⚠️</span> {error}
+              <button onClick={() => setError(null)} style={{
+                marginLeft: 'auto', background: 'none', border: 'none', color: '#ff8a8a',
+                cursor: 'pointer', fontSize: 16, padding: '0 4px'
+              }}>✕</button>
+            </div>
+          )}
+
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <h2 style={{ fontSize: 28, marginBottom: 8 }}>Your Captions</h2>
             <p style={{ color: 'var(--gray)', fontSize: 15 }}>
-              {source === 'ai' ? 'AI-generated' : source === 'fallback' ? 'Template (AI unavailable)' : 'Demo'} · 5 tones · ~30 words each · edit freely
+              {sourceLabel} · 5 tones · ~30 words each · edit freely
             </p>
           </div>
 

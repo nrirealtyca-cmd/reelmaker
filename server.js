@@ -326,11 +326,28 @@ app.post('/api/disconnect', async (req, res) => {
 // ─── AI Captions (Google Gemini) — 5 Tones ──────────────────
 
 const CAPTION_TONES = {
-  engaging:      'Fun, attention-grabbing, use 1-2 emojis, include a call to action (ask a question or prompt comments). Add 3-4 relevant hashtags at the end.',
+  engaging:      'Fun, attention-grabbing, use 1-2 emojis, include a call to action. Add 3-4 relevant hashtags at the end.',
   professional:  'Clean, polished, business-appropriate. No emojis. Authoritative but approachable. Add 2-3 industry-relevant hashtags at the end.',
   witty:         'Clever wordplay, puns, or humor. Personality-driven, slightly cheeky. Use 1 emoji max. Add 3-4 fun hashtags at the end.',
   inspirational: 'Motivational, uplifting, poetic. Think quote-style caption. Use 1-2 emojis. Add 2-3 aspirational hashtags at the end.',
   storyteller:   'Narrative voice, behind-the-scenes feel, personal and warm. As if sharing with a friend. Use 1 emoji max. Add 2-3 hashtags at the end.'
+};
+
+const TONE_KEYS = Object.keys(CAPTION_TONES);
+
+// Gemini REST API responseSchema — using uppercase types + descriptions per docs
+const CAPTION_SCHEMA = {
+  type: 'OBJECT',
+  description: 'Five social media captions in different tones, each approximately 30 words plus hashtags',
+  properties: {
+    engaging:      { type: 'STRING', description: 'Fun caption with emojis and call to action, ~30 words + hashtags' },
+    professional:  { type: 'STRING', description: 'Clean business-appropriate caption, no emojis, ~30 words + hashtags' },
+    witty:         { type: 'STRING', description: 'Clever humorous caption with wordplay, ~30 words + hashtags' },
+    inspirational: { type: 'STRING', description: 'Motivational uplifting caption, ~30 words + hashtags' },
+    storyteller:   { type: 'STRING', description: 'Personal narrative-style caption, ~30 words + hashtags' }
+  },
+  propertyOrdering: ['engaging', 'professional', 'witty', 'inspirational', 'storyteller'],
+  required: ['engaging', 'professional', 'witty', 'inspirational', 'storyteller']
 };
 
 app.post('/api/captions', async (req, res) => {
@@ -340,160 +357,195 @@ app.post('/api/captions', async (req, res) => {
     return res.status(400).json({ error: 'No items provided' });
   }
 
-  // If no API key, return demo captions
   if (!GEMINI_API_KEY) {
     console.log('[Captions] No GEMINI_API_KEY — returning demo captions');
     return res.json({
       captions: generateDemoCaptions(items, platform),
-      tones: Object.keys(CAPTION_TONES),
+      tones: TONE_KEYS,
       source: 'demo'
     });
   }
 
   try {
-    // Build context from photo metadata
-    const photoContext = items.map((item, i) => {
-      const parts = [`Photo ${i + 1}`];
-      if (item.filename) parts.push(`file: "${item.filename}"`);
-      if (item.mimeType) parts.push(`type: ${item.mimeType}`);
-      if (item.mediaMetadata) {
-        const m = item.mediaMetadata;
-        if (m.creationTime) parts.push(`taken: ${m.creationTime}`);
-        if (m.width && m.height) parts.push(`${m.width}×${m.height}`);
-        if (m.photo) {
-          if (m.photo.cameraMake) parts.push(`camera: ${m.photo.cameraMake} ${m.photo.cameraModel || ''}`);
-          if (m.photo.focalLength) parts.push(`${m.photo.focalLength}mm f/${m.photo.apertureFNumber}`);
-          if (m.photo.isoEquivalent) parts.push(`ISO ${m.photo.isoEquivalent}`);
-        }
-      }
-      return parts.join(' | ');
-    }).join('\n');
-
-    const platformName = platform === 'short' ? 'YouTube Short' : 'Instagram Reel';
-    const toneKeys = Object.keys(CAPTION_TONES);
-
-    const toneInstructions = toneKeys.map((key, i) =>
-      `${i + 1}. "${key}" — ${CAPTION_TONES[key]}`
-    ).join('\n');
-
-    const prompt = `You are an expert social media caption writer. Based on the photo metadata below, generate captions for a ${platformName} video.
-
-STRICT RULES:
-- Each caption must be EXACTLY 30 words (not counting hashtags). Count carefully.
-- Emojis are allowed where specified and count as words.
-- Hashtags go at the end and do NOT count toward the 30-word limit.
-- Reference specific details from the metadata (locations, food, animals, camera gear, time of day, etc.)
-
-PHOTO METADATA:
-${photoContext}
-
-Generate exactly 5 captions, one per tone:
-${toneInstructions}
-
-Respond with ONLY valid JSON, no markdown:
-{"engaging":"...","professional":"...","witty":"...","inspirational":"...","storyteller":"..."}`;
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-    const geminiBody = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.9,
-        maxOutputTokens: 2048,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            engaging:      { type: 'STRING' },
-            professional:  { type: 'STRING' },
-            witty:         { type: 'STRING' },
-            inspirational: { type: 'STRING' },
-            storyteller:   { type: 'STRING' }
-          },
-          required: ['engaging', 'professional', 'witty', 'inspirational', 'storyteller']
-        }
-      }
-    });
-
-    const response = await fetchJSON(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(geminiBody)
-      },
-      body: geminiBody
-    });
-
-    const text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    if (!text) throw new Error('Empty response from Gemini');
-
-    console.log(`[Captions] Raw Gemini (first 800 chars): ${JSON.stringify(text).slice(0, 800)}`);
-
-    // Strategy: Gemini often puts real newlines inside JSON string values.
-    // Instead of trying to fix the JSON, extract each caption via regex.
-    let captions = {};
-
-    // First try: clean aggressively and parse
-    try {
-      // Remove all control characters (newlines, tabs, carriage returns)
-      // This is safe because our expected output has no structural newlines
-      // — it's a single flat JSON object with 5 string values
-      const flat = text
-        .replace(/```json\s*/g, '').replace(/```\s*/g, '')
-        .replace(/[\x00-\x1F\x7F]/g, ' ')  // ALL control chars → space
-        .replace(/\s{2,}/g, ' ')
-        .trim();
-      captions = JSON.parse(flat);
-    } catch (e1) {
-      console.warn('[Captions] JSON.parse failed:', e1.message);
-
-      // Second try: regex extraction of each key
-      // Handles cases where JSON is malformed but content is there
-      for (const key of toneKeys) {
-        // Match "key" : "value" — value ends at next ", " or "}
-        // Use a greedy match that stops at the pattern: ", " followed by a known key or }
-        const nextKeys = toneKeys.filter(k => k !== key).map(k => `"${k}"`).join('|');
-        const pattern = new RegExp(
-          `"${key}"\\s*:\\s*"([\\s\\S]*?)(?:"\\s*,\\s*(?:${nextKeys})|"\\s*\\})`, 
-        );
-        const match = text.match(pattern);
-        if (match) {
-          captions[key] = match[1]
-            .replace(/[\x00-\x1F\x7F]/g, ' ')
-            .replace(/\s{2,}/g, ' ')
-            .replace(/\\"/g, '"')
-            .trim();
-        }
-      }
-      console.log(`[Captions] Regex extracted: ${Object.keys(captions).filter(k => captions[k]).join(', ') || 'none'}`);
-    }
-
-    // Merge: use AI captions where available, fill gaps from demo
-    const demoCaptions = generateDemoCaptions(items, platform);
-    const merged = {};
-    let aiCount = 0;
-    for (const key of toneKeys) {
-      if (captions[key] && captions[key].trim().length > 10) {
-        merged[key] = captions[key];
-        aiCount++;
-      } else {
-        merged[key] = demoCaptions[key];
-      }
-    }
-
-    const source = aiCount === 5 ? 'ai' : aiCount > 0 ? 'ai-partial' : 'fallback';
-    console.log(`[Captions] ${source}: ${aiCount}/5 tones from Gemini`);
-    res.json({ captions: merged, tones: toneKeys, source });
-
+    const captions = await generateGeminiCaptions(items, platform);
+    res.json(captions);
   } catch (err) {
-    console.error('[Captions] Gemini generation failed:', err.message);
+    console.error('[Captions] Fatal error:', err.message);
     res.json({
       captions: generateDemoCaptions(items, platform),
-      tones: Object.keys(CAPTION_TONES),
+      tones: TONE_KEYS,
       source: 'fallback',
       error: err.message
     });
   }
 });
+
+async function generateGeminiCaptions(items, platform) {
+  // Build context from photo metadata
+  const photoContext = items.map((item, i) => {
+    const parts = [`Photo ${i + 1}`];
+    if (item.filename) parts.push(`file: "${item.filename}"`);
+    if (item.mimeType) parts.push(`type: ${item.mimeType}`);
+    if (item.mediaMetadata) {
+      const m = item.mediaMetadata;
+      if (m.creationTime) parts.push(`taken: ${m.creationTime}`);
+      if (m.width && m.height) parts.push(`${m.width}×${m.height}`);
+      if (m.photo) {
+        if (m.photo.cameraMake) parts.push(`camera: ${m.photo.cameraMake} ${m.photo.cameraModel || ''}`);
+        if (m.photo.focalLength) parts.push(`${m.photo.focalLength}mm f/${m.photo.apertureFNumber}`);
+        if (m.photo.isoEquivalent) parts.push(`ISO ${m.photo.isoEquivalent}`);
+      }
+    }
+    return parts.join(' | ');
+  }).join('\n');
+
+  const platformName = platform === 'short' ? 'YouTube Short' : 'Instagram Reel';
+
+  const toneInstructions = TONE_KEYS.map((key, i) =>
+    `${i + 1}. "${key}" — ${CAPTION_TONES[key]}`
+  ).join('\n');
+
+  const prompt = `You are an expert social media caption writer. Generate captions for a ${platformName} video based on the photo metadata below.
+
+RULES:
+- Each caption: approximately 30 words (not counting hashtags).
+- Emojis allowed where the tone specifies.
+- Hashtags at the end, not counted in word limit.
+- Reference specific details from metadata (food, places, animals, camera, time of day).
+- Each caption must be a single line of text (no line breaks within a caption).
+
+PHOTO METADATA:
+${photoContext}
+
+TONES:
+${toneInstructions}`;
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const geminiBody = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.9,
+      maxOutputTokens: 2048,
+      responseMimeType: 'application/json',
+      responseSchema: CAPTION_SCHEMA
+    }
+  });
+
+  const response = await fetchJSON(geminiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(geminiBody)
+    },
+    body: geminiBody
+  });
+
+  // Extract the text from Gemini response
+  const rawText = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!rawText) {
+    // Check for blocked/filtered responses
+    const finishReason = response?.candidates?.[0]?.finishReason;
+    const blockReason = response?.promptFeedback?.blockReason;
+    throw new Error(`Empty Gemini response. finishReason=${finishReason}, blockReason=${blockReason}`);
+  }
+
+  console.log(`[Captions] Raw Gemini (${rawText.length} chars, first 300): ${JSON.stringify(rawText).slice(0, 300)}`);
+
+  // Parse the response — handle multiple encoding scenarios
+  const captions = parseGeminiJSON(rawText);
+
+  // Merge with demo captions to fill any gaps
+  const demoCaptions = generateDemoCaptions(items, platform);
+  const merged = {};
+  let aiCount = 0;
+  for (const key of TONE_KEYS) {
+    if (captions[key] && captions[key].trim().length > 10) {
+      merged[key] = captions[key];
+      aiCount++;
+    } else {
+      merged[key] = demoCaptions[key];
+    }
+  }
+
+  const source = aiCount === 5 ? 'ai' : aiCount > 0 ? 'ai-partial' : 'fallback';
+  console.log(`[Captions] ${source}: ${aiCount}/5 tones from Gemini`);
+  return { captions: merged, tones: TONE_KEYS, source };
+}
+
+/**
+ * Parse Gemini JSON response — handles:
+ * 1. Clean JSON: {"engaging":"...", ...}
+ * 2. Double-encoded: "{\"engaging\":\"...\", ...}"
+ * 3. JSON with control characters (newlines/tabs inside strings)
+ * 4. Partial/malformed JSON → regex extraction
+ */
+function parseGeminiJSON(rawText) {
+  // Attempt 1: Direct parse after stripping ALL control characters
+  // (Safe because our schema has only flat string values — no structural whitespace needed)
+  try {
+    const cleaned = rawText
+      .replace(/```json\s*/g, '').replace(/```\s*/g, '')
+      .replace(/[\x00-\x1F\x7F\u2028\u2029]/g, ' ')  // includes Unicode line separators
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    if (typeof parsed === 'object' && parsed.engaging) {
+      console.log('[Captions] Parsed via direct JSON.parse');
+      return parsed;
+    }
+    // If parsed is a string (double-encoded), unwrap it
+    if (typeof parsed === 'string') {
+      const inner = JSON.parse(parsed.replace(/[\x00-\x1F\x7F\u2028\u2029]/g, ' '));
+      if (typeof inner === 'object' && inner.engaging) {
+        console.log('[Captions] Parsed via double-decode');
+        return inner;
+      }
+    }
+  } catch (e) {
+    console.warn('[Captions] Direct parse failed:', e.message);
+  }
+
+  // Attempt 2: Unescape \" and try again (handles escaped-quote encoding)
+  try {
+    const unescaped = rawText.replace(/\\"/g, '"').replace(/[\x00-\x1F\x7F\u2028\u2029]/g, ' ').replace(/\s{2,}/g, ' ');
+    const parsed = JSON.parse(unescaped);
+    if (typeof parsed === 'object' && parsed.engaging) {
+      console.log('[Captions] Parsed via unescape + JSON.parse');
+      return parsed;
+    }
+  } catch (e) {
+    console.warn('[Captions] Unescape parse failed:', e.message);
+  }
+
+  // Attempt 3: Regex extraction — last resort
+  // Normalize the text first
+  const normalized = rawText
+    .replace(/\\"/g, '"')
+    .replace(/[\x00-\x1F\x7F\u2028\u2029]/g, ' ')
+    .replace(/\s{2,}/g, ' ');
+
+  const captions = {};
+  for (let i = 0; i < TONE_KEYS.length; i++) {
+    const key = TONE_KEYS[i];
+    const nextKey = TONE_KEYS[i + 1];
+    let pattern;
+    if (nextKey) {
+      // Match from this key to the next key
+      pattern = new RegExp(`"${key}"\\s*:\\s*"(.*?)"\\s*,\\s*"${nextKey}"`);
+    } else {
+      // Last key — match to closing brace
+      pattern = new RegExp(`"${key}"\\s*:\\s*"(.*?)"\\s*\\}`);
+    }
+    const match = normalized.match(pattern);
+    if (match) {
+      captions[key] = match[1].trim();
+    }
+  }
+
+  const extracted = Object.keys(captions).filter(k => captions[k]);
+  console.log(`[Captions] Regex extracted: ${extracted.join(', ') || 'none'}`);
+  return captions;
+}
 
 function generateDemoCaptions(items, platform = 'reel') {
   const count = items.length;
