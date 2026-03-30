@@ -426,35 +426,46 @@ Respond with ONLY valid JSON, no markdown:
     const text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     if (!text) throw new Error('Empty response from Gemini');
 
-    // Gemini sometimes returns unescaped newlines/tabs inside JSON strings
-    // which breaks JSON.parse(). Fix: replace control chars inside string values.
-    let cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    console.log(`[Captions] Raw Gemini (first 800 chars): ${JSON.stringify(text).slice(0, 800)}`);
 
-    // Replace literal newlines/tabs inside JSON string values with spaces
-    // (between quotes, not structural newlines between keys)
-    cleaned = cleaned.replace(/[\n\r\t]/g, ' ');
+    // Strategy: Gemini often puts real newlines inside JSON string values.
+    // Instead of trying to fix the JSON, extract each caption via regex.
+    let captions = {};
 
-    // Collapse multiple spaces
-    cleaned = cleaned.replace(/\s{2,}/g, ' ');
-
-    let captions;
+    // First try: clean aggressively and parse
     try {
-      captions = JSON.parse(cleaned);
-    } catch (parseErr) {
-      // Last resort: try to extract each tone via regex
-      console.warn('[Captions] JSON parse failed, attempting regex extraction:', parseErr.message);
-      captions = {};
-      for (const key of toneKeys) {
-        const regex = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 's');
-        const match = cleaned.match(regex);
-        if (match) captions[key] = match[1].replace(/\\"/g, '"').replace(/\\n/g, ' ');
-      }
-    }
+      // Remove all control characters (newlines, tabs, carriage returns)
+      // This is safe because our expected output has no structural newlines
+      // — it's a single flat JSON object with 5 string values
+      const flat = text
+        .replace(/```json\s*/g, '').replace(/```\s*/g, '')
+        .replace(/[\x00-\x1F\x7F]/g, ' ')  // ALL control chars → space
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      captions = JSON.parse(flat);
+    } catch (e1) {
+      console.warn('[Captions] JSON.parse failed:', e1.message);
 
-    // Log what Gemini actually returned
-    const returnedKeys = Object.keys(captions).filter(k => captions[k]);
-    console.log(`[Captions] Gemini returned keys: ${returnedKeys.join(', ') || 'none'}`);
-    console.log(`[Captions] Raw Gemini text (first 500 chars): ${text.slice(0, 500)}`);
+      // Second try: regex extraction of each key
+      // Handles cases where JSON is malformed but content is there
+      for (const key of toneKeys) {
+        // Match "key" : "value" — value ends at next ", " or "}
+        // Use a greedy match that stops at the pattern: ", " followed by a known key or }
+        const nextKeys = toneKeys.filter(k => k !== key).map(k => `"${k}"`).join('|');
+        const pattern = new RegExp(
+          `"${key}"\\s*:\\s*"([\\s\\S]*?)(?:"\\s*,\\s*(?:${nextKeys})|"\\s*\\})`, 
+        );
+        const match = text.match(pattern);
+        if (match) {
+          captions[key] = match[1]
+            .replace(/[\x00-\x1F\x7F]/g, ' ')
+            .replace(/\s{2,}/g, ' ')
+            .replace(/\\"/g, '"')
+            .trim();
+        }
+      }
+      console.log(`[Captions] Regex extracted: ${Object.keys(captions).filter(k => captions[k]).join(', ') || 'none'}`);
+    }
 
     // Merge: use AI captions where available, fill gaps from demo
     const demoCaptions = generateDemoCaptions(items, platform);
