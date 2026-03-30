@@ -289,18 +289,79 @@
 
       useEffect(() => { loadPhotos(); }, []);
 
+      // 12 test photos with full Google Photos-style metadata
+      const TEST_PHOTOS = [
+        // ── 4 Food ──
+        { id: 'test-food-1', filename: 'IMG_20260315_192345_sushi_platter.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-15T19:23:45Z', width: '4032', height: '3024',
+            photo: { cameraMake: 'Apple', cameraModel: 'iPhone 15 Pro Max', focalLength: 6.86, apertureFNumber: 1.78, isoEquivalent: 250, exposureTime: '0.02s' }},
+          color: '#E63946', label: '🍣 Sushi' },
+        { id: 'test-food-2', filename: 'DSC_8821_pasta_carbonara_closeup.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-10T20:15:30Z', width: '6000', height: '4000',
+            photo: { cameraMake: 'Nikon', cameraModel: 'Z6 III', focalLength: 50, apertureFNumber: 2.8, isoEquivalent: 800, exposureTime: '0.016s' }},
+          color: '#F4A261', label: '🍝 Pasta' },
+        { id: 'test-food-3', filename: 'PXL_20260308_brunch_avocado_toast.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-08T10:42:18Z', width: '4080', height: '3072',
+            photo: { cameraMake: 'Google', cameraModel: 'Pixel 9 Pro', focalLength: 6.81, apertureFNumber: 1.68, isoEquivalent: 143, exposureTime: '0.008s' }},
+          color: '#2A9D8F', label: '🥑 Toast' },
+        { id: 'test-food-4', filename: 'IMG_4492_latte_art_rosetta.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-22T08:05:55Z', width: '4032', height: '3024',
+            photo: { cameraMake: 'Apple', cameraModel: 'iPhone 16 Pro', focalLength: 2.22, apertureFNumber: 2.2, isoEquivalent: 400, exposureTime: '0.033s' }},
+          color: '#6A4C93', label: '☕ Latte' },
+
+        // ── 2 Tourist ──
+        { id: 'test-tourist-1', filename: 'DSC_1203_eiffel_tower_golden_hour.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-02-14T17:48:22Z', width: '7360', height: '4912',
+            photo: { cameraMake: 'Sony', cameraModel: 'A7R V', focalLength: 24, apertureFNumber: 8, isoEquivalent: 100, exposureTime: '0.004s' }},
+          color: '#E9C46A', label: '🗼 Paris' },
+        { id: 'test-tourist-2', filename: 'PXL_20260220_kyoto_bamboo_grove.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-02-20T09:15:40Z', width: '4080', height: '3072',
+            photo: { cameraMake: 'Google', cameraModel: 'Pixel 9 Pro', focalLength: 6.81, apertureFNumber: 1.68, isoEquivalent: 55, exposureTime: '0.005s' }},
+          color: '#264653', label: '🎋 Kyoto' },
+
+        // ── 2 Selfies ──
+        { id: 'test-selfie-1', filename: 'IMG_20260305_beach_selfie_sunset.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-05T18:32:10Z', width: '3088', height: '2316',
+            photo: { cameraMake: 'Samsung', cameraModel: 'Galaxy S25 Ultra', focalLength: 3.2, apertureFNumber: 2.2, isoEquivalent: 50, exposureTime: '0.001s' }},
+          color: '#FF6B35', label: '🤳 Beach' },
+        { id: 'test-selfie-2', filename: 'IMG_7720_group_selfie_rooftop_bar.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-18T21:10:45Z', width: '4032', height: '3024',
+            photo: { cameraMake: 'Apple', cameraModel: 'iPhone 15 Pro', focalLength: 2.22, apertureFNumber: 1.9, isoEquivalent: 1000, exposureTime: '0.04s' }},
+          color: '#1982C4', label: '🎉 Group' },
+
+        // ── 2 Macro / Zoom ──
+        { id: 'test-macro-1', filename: 'DSC_3345_dewdrop_on_rose_petal_macro.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-12T07:20:33Z', width: '6000', height: '4000',
+            photo: { cameraMake: 'Nikon', cameraModel: 'Z6 III', focalLength: 105, apertureFNumber: 2.8, isoEquivalent: 200, exposureTime: '0.005s' }},
+          color: '#E63946', label: '🌹 Macro' },
+        { id: 'test-macro-2', filename: 'PXL_20260325_butterfly_wing_detail.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-25T11:55:12Z', width: '4080', height: '3072',
+            photo: { cameraMake: 'Google', cameraModel: 'Pixel 9 Pro', focalLength: 6.81, apertureFNumber: 1.68, isoEquivalent: 72, exposureTime: '0.003s' }},
+          color: '#8AC926', label: '🦋 Detail' },
+
+        // ── 2 Animals ──
+        { id: 'test-animal-1', filename: 'IMG_20260301_golden_retriever_park.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-01T15:40:28Z', width: '4032', height: '3024',
+            photo: { cameraMake: 'Apple', cameraModel: 'iPhone 16 Pro', focalLength: 6.86, apertureFNumber: 1.78, isoEquivalent: 64, exposureTime: '0.002s' }},
+          color: '#F4A261', label: '🐕 Dog' },
+        { id: 'test-animal-2', filename: 'DSC_5510_tabby_cat_window_light.jpg', mimeType: 'image/jpeg',
+          mediaMetadata: { creationTime: '2026-03-20T14:22:09Z', width: '6000', height: '4000',
+            photo: { cameraMake: 'Sony', cameraModel: 'A7 IV', focalLength: 85, apertureFNumber: 1.8, isoEquivalent: 320, exposureTime: '0.008s' }},
+          color: '#457B9D', label: '🐈 Cat' }
+      ];
+
       function loadPhotos(pageToken) {
         setLoading(true);
         if (isDemoMode || !sessionId) {
-          // Generate demo items
-          const demoItems = Array.from({ length: 12 }, (_, i) => ({
-            id: `demo-${i}`,
-            filename: `Demo Photo ${i + 1}`,
-            mimeType: 'image/jpeg',
+          // Use test photos with realistic Google Photos metadata
+          const demoItems = TEST_PHOTOS.map(p => ({
+            ...p,
             thumbnail: `data:image/svg+xml,${encodeURIComponent(
               `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">` +
-              `<rect fill="${['%23FF6B35','%23E63946','%23457B9D','%232A9D8F','%23E9C46A','%23F4A261','%23264653','%236A4C93','%231982C4','%238AC926','%23FF6B35','%23E63946'][i]}" width="400" height="400"/>` +
-              `<text x="200" y="210" text-anchor="middle" fill="white" font-size="24" font-family="sans-serif">${i + 1}</text></svg>`
+              `<rect fill="${p.color.replace('#', '%23')}" width="400" height="400"/>` +
+              `<text x="200" y="185" text-anchor="middle" fill="white" font-size="40" font-family="sans-serif">${p.label.split(' ')[0]}</text>` +
+              `<text x="200" y="230" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-size="16" font-family="sans-serif">${p.label.split(' ')[1] || ''}</text>` +
+              `<text x="200" y="265" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="11" font-family="sans-serif">${p.mediaMetadata.photo.cameraMake} ${p.mediaMetadata.photo.cameraModel}</text></svg>`
             )}`,
             isMock: true
           }));
