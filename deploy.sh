@@ -1,157 +1,131 @@
 #!/bin/bash
 # ============================================================
-# ReelMaker — Deploy Script v2
+# ReelMaker — Deploy Script (v2)
 # Usage: bash deploy.sh "commit message"
-#    or: bash deploy.sh  (uses default message)
+# Copies files → git push → waits for Railway → runs checks
+# Compatible with macOS bash 3.2 (no declare -A)
 # ============================================================
 
 set -e
 
-# ─── Config ──────────────────────────────────────────────────
 PROJECT_DIR="/Users/chandniroy/Documents/ReelMaker/files_ReelMaker_10_45/reelmaker-app"
 DOWNLOADS="$HOME/Downloads"
 LIVE_URL="https://reelmaker-production.up.railway.app"
 MSG="${1:-deploy update}"
-
-# ─── Colors ──────────────────────────────────────────────────
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-echo ""
-echo -e "${CYAN}🎬 ReelMaker Deploy${NC}"
-echo "───────────────────────────────────────"
-
-# ─── Step 1: Copy files from Downloads ───────────────────────
-cd "$PROJECT_DIR"
 COPIED=0
+
+cd "$PROJECT_DIR"
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🎬 ReelMaker Deploy"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# ─── Step 1: Copy files from Downloads ──────────────────────
+echo "📦 Checking Downloads for updated files..."
 
 copy_if_exists() {
   local src="$1"
   local dest="$2"
-  if [ -f "$DOWNLOADS/$src" ]; then
-    mkdir -p "$(dirname "$dest")"
-    cp "$DOWNLOADS/$src" "$dest"
-    echo -e "  ${GREEN}✓${NC} $src → $dest"
+  local label="$3"
+  if [ -f "$src" ]; then
+    cp "$src" "$dest"
+    echo "  ✓ $label"
     COPIED=$((COPIED + 1))
   fi
 }
 
-copy_if_exists "server.js"                    "./server.js"
-copy_if_exists "index.html"                   "./public/index.html"
-copy_if_exists "Dockerfile"                   "./Dockerfile"
-copy_if_exists "package.json"                 "./package.json"
-copy_if_exists "deploy.sh"                    "./deploy.sh"
-copy_if_exists ".dockerignore"                "./.dockerignore"
-copy_if_exists ".gitignore"                   "./.gitignore"
-copy_if_exists "SESSION_CONTEXT.md"           "./SESSION_CONTEXT.md"
-copy_if_exists "REELMAKER_SESSION_CONTEXT.md" "./REELMAKER_SESSION_CONTEXT.md"
-copy_if_exists "BRD.md"                       "./BRD.md"
-copy_if_exists "ARCHITECTURE.md"              "./ARCHITECTURE.md"
-copy_if_exists "PRD.md"                       "./PRD.md"
+copy_if_exists "$DOWNLOADS/server.js"         "./server.js"              "server.js"
+copy_if_exists "$DOWNLOADS/index.html"        "./public/index.html"      "index.html"
+copy_if_exists "$DOWNLOADS/Dockerfile"        "./Dockerfile"             "Dockerfile"
+copy_if_exists "$DOWNLOADS/package.json"      "./package.json"           "package.json"
+copy_if_exists "$DOWNLOADS/deploy.sh"         "./deploy.sh"              "deploy.sh"
+copy_if_exists "$DOWNLOADS/SESSION_CONTEXT.md" "./SESSION_CONTEXT.md"    "SESSION_CONTEXT.md"
 
 if [ "$COPIED" -eq 0 ]; then
-  echo -e "  ${YELLOW}⚠ No new files found in ~/Downloads${NC}"
-  echo ""
-  if git diff --quiet && git diff --cached --quiet; then
-    echo -e "${YELLOW}Nothing to deploy — no new files and no local changes.${NC}"
-    exit 0
-  else
-    echo -e "  ${CYAN}ℹ Deploying existing local changes${NC}"
-  fi
-else
-  echo -e "\n  ${GREEN}Copied $COPIED file(s)${NC}"
+  echo "  (no new files found in ~/Downloads)"
 fi
 
-# ─── Step 2: Show diff summary ──────────────────────────────
+# ─── Step 2: Git commit & push ──────────────────────────────
 echo ""
-echo "───────────────────────────────────────"
-echo -e "${CYAN}Changes:${NC}"
+echo "🚀 Deploying: $MSG"
 git add -A
-git diff --cached --stat 2>/dev/null || true
 
-# ─── Step 3: Commit and push ────────────────────────────────
-echo ""
+# Check if there are changes to commit
+if git diff --cached --quiet; then
+  echo "  ⚠️  No changes to commit. Aborting."
+  exit 0
+fi
+
 git commit -m "$MSG"
 git push
 
-echo ""
-echo -e "${GREEN}🚀 Deployed:${NC} $MSG"
-echo -e "${YELLOW}⏳ Railway auto-deploys in ~2 min${NC}"
+# ─── Step 3: Move deployed files to timestamped folder ──────
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+DEPLOYED_DIR="$DOWNLOADS/_deployed_${TIMESTAMP}"
+mkdir -p "$DEPLOYED_DIR"
 
-# ─── Step 4: Clean up Downloads ─────────────────────────────
-CLEANUP_DIR="$DOWNLOADS/_deployed_$(date +%Y%m%d_%H%M%S)"
-CLEANED=0
-
-cleanup_if_exists() {
-  local src="$1"
-  if [ -f "$DOWNLOADS/$src" ]; then
-    if [ "$CLEANED" -eq 0 ]; then
-      mkdir -p "$CLEANUP_DIR"
-    fi
-    mv "$DOWNLOADS/$src" "$CLEANUP_DIR/$src"
-    CLEANED=$((CLEANED + 1))
+for f in server.js index.html Dockerfile package.json deploy.sh SESSION_CONTEXT.md; do
+  if [ -f "$DOWNLOADS/$f" ]; then
+    mv "$DOWNLOADS/$f" "$DEPLOYED_DIR/"
   fi
-}
+done
 
-cleanup_if_exists "server.js"
-cleanup_if_exists "index.html"
-cleanup_if_exists "Dockerfile"
-cleanup_if_exists "package.json"
-cleanup_if_exists "deploy.sh"
-cleanup_if_exists ".dockerignore"
-cleanup_if_exists ".gitignore"
-cleanup_if_exists "SESSION_CONTEXT.md"
-cleanup_if_exists "REELMAKER_SESSION_CONTEXT.md"
-cleanup_if_exists "BRD.md"
-cleanup_if_exists "ARCHITECTURE.md"
-cleanup_if_exists "PRD.md"
-
-if [ "$CLEANED" -gt 0 ]; then
-  echo -e "${CYAN}🧹 Moved $CLEANED file(s) to ${CLEANUP_DIR##*/}${NC}"
+if [ "$(ls -A "$DEPLOYED_DIR" 2>/dev/null)" ]; then
+  echo "  📁 Deployed files moved to: _deployed_${TIMESTAMP}/"
 fi
 
-# ─── Step 5: Wait and verify ────────────────────────────────
+# ─── Step 4: Wait for Railway deploy ────────────────────────
 echo ""
-echo "───────────────────────────────────────"
-echo -e "${CYAN}Waiting 90s for Railway to build...${NC}"
-
-for i in 90 80 70 60 50 40 30 20 10; do
-  echo -ne "  ${i}s remaining...\r"
+echo "⏳ Waiting 90s for Railway to deploy..."
+for i in $(seq 90 -10 10); do
+  echo "  ${i}s remaining..."
   sleep 10
 done
-echo ""
+echo "  Checking now..."
 
-echo -e "${CYAN}🔍 Running health check...${NC}"
-HEALTH=$(curl -s --max-time 10 "$LIVE_URL/health" 2>/dev/null || echo "FAILED")
+# ─── Step 5: Health check ───────────────────────────────────
+echo ""
+echo "🔍 Running health check..."
+HEALTH=$(curl -s --max-time 10 "$LIVE_URL/health" 2>/dev/null || echo "FAIL")
 
 if echo "$HEALTH" | grep -q '"status":"ok"'; then
-  echo -e "  ${GREEN}✓ Server is healthy${NC}"
+  echo "  ✅ Health: OK"
 
-  echo "$HEALTH" | grep -q '"ffmpeg":true' && echo -e "  ${GREEN}✓${NC} FFmpeg: ready"
-  echo "$HEALTH" | grep -q '"captionApi":"gemini"' && echo -e "  ${GREEN}✓${NC} Captions: Gemini AI"
-  echo "$HEALTH" | grep -q '"captionApi":"demo"' && echo -e "  ${YELLOW}⚠${NC} Captions: demo mode (set GEMINI_API_KEY)"
-  echo "$HEALTH" | grep -q '"oauth":true' && echo -e "  ${GREEN}✓${NC} OAuth: configured"
-  echo "$HEALTH" | grep -q '"oauth":false' && echo -e "  ${YELLOW}⚠${NC} OAuth: demo mode"
+  # Parse key fields
+  FFMPEG=$(echo "$HEALTH" | grep -o '"ffmpeg":true' | head -1)
+  LIBX264=$(echo "$HEALTH" | grep -o '"libx264":true' | head -1)
+  CAPTION_API=$(echo "$HEALTH" | grep -o '"captionApi":true' | head -1)
+  VERSION=$(echo "$HEALTH" | grep -o '"version":"[^"]*"' | head -1)
 
-  echo ""
-  echo -e "${CYAN}🧪 Testing captions API...${NC}"
-  CAP_TEST=$(curl -s --max-time 15 "$LIVE_URL/api/captions/test" 2>/dev/null || echo "FAILED")
-
-  if echo "$CAP_TEST" | grep -q '"status":"ok"'; then
-    echo -e "  ${GREEN}✓ Gemini captions working!${NC}"
-  elif echo "$CAP_TEST" | grep -q '"status":"demo"'; then
-    echo -e "  ${YELLOW}⚠ Captions in demo mode — set GEMINI_API_KEY in Railway${NC}"
-  else
-    echo -e "  ${RED}✗ Caption test: ${CAP_TEST}${NC}"
-  fi
+  [ -n "$FFMPEG" ]      && echo "  ✅ FFmpeg: available"      || echo "  ❌ FFmpeg: missing"
+  [ -n "$LIBX264" ]     && echo "  ✅ libx264: available"     || echo "  ❌ libx264: missing"
+  [ -n "$CAPTION_API" ] && echo "  ✅ Captions: Gemini AI"    || echo "  ⚠️  Captions: demo mode (no GEMINI_API_KEY)"
+  [ -n "$VERSION" ]     && echo "  📌 $VERSION"
 else
-  echo -e "  ${RED}✗ Health check failed — may still be deploying${NC}"
-  echo -e "  ${YELLOW}Try manually: curl $LIVE_URL/health${NC}"
+  echo "  ❌ Health check failed"
+  echo "  Response: $HEALTH"
 fi
 
+# ─── Step 6: Caption API check ──────────────────────────────
 echo ""
-echo -e "${GREEN}Done!${NC} 🎬"
-echo "───────────────────────────────────────"
+echo "🔍 Testing caption API..."
+CAPTION_BODY='{"items":[{"filename":"test_photo.jpg","mimeType":"image/jpeg"}],"platform":"reel"}'
+CAPTION_RESULT=$(curl -s --max-time 15 -X POST "$LIVE_URL/api/captions" \
+  -H "Content-Type: application/json" \
+  -d "$CAPTION_BODY" 2>/dev/null || echo "FAIL")
+
+if echo "$CAPTION_RESULT" | grep -q '"engaging"'; then
+  SOURCE=$(echo "$CAPTION_RESULT" | grep -o '"source":"[^"]*"' | head -1)
+  echo "  ✅ Captions working ($SOURCE)"
+else
+  echo "  ❌ Caption API failed"
+  echo "  Response: $(echo "$CAPTION_RESULT" | head -c 200)"
+fi
+
+# ─── Done ───────────────────────────────────────────────────
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ Deploy complete: $MSG"
+echo "🌐 $LIVE_URL"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

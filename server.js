@@ -1,7 +1,7 @@
 // ============================================================
-// ReelMaker — server.js v2.4 (Session 6)
+// ReelMaker — server.js v2.4 (Session 6 — Gemini Captions)
 // Express backend: Auth, Google Photos API, FFmpeg pipeline,
-//                  AI Captions (Google Gemini — free tier)
+// AI Captions via Google Gemini
 // ============================================================
 
 require('dotenv').config();
@@ -96,7 +96,6 @@ setInterval(() => {
   const now = Date.now();
   for (const [jobId, job] of Object.entries(jobs)) {
     if (job.createdAt && now - job.createdAt > OUTPUT_TTL) {
-      // Delete output files
       [job.reelUrl, job.shortUrl].forEach(url => {
         if (url) {
           const filePath = path.join(__dirname, 'public', url.replace(/^\//, ''));
@@ -155,6 +154,7 @@ app.get('/health', (req, res) => {
 
   res.json({
     status: 'ok',
+    version: '2.4',
     ffmpeg: !!ffmpegVersion,
     ffmpegVersion,
     libx264: hasLibx264,
@@ -164,7 +164,7 @@ app.get('/health', (req, res) => {
     outWritable,
     base: BASE_URL,
     oauth: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
-    captionApi: GEMINI_API_KEY ? 'gemini' : 'demo',
+    captionApi: !!GEMINI_API_KEY,
     activeJobs: ffmpegQueue.active,
     queuedJobs: ffmpegQueue.pending,
     totalTrackedJobs: Object.keys(jobs).length
@@ -323,19 +323,20 @@ app.post('/api/disconnect', async (req, res) => {
   res.json({ success: true });
 });
 
-// ─── AI Captions (Google Gemini — free tier) ─────────────────
+// ─── AI Captions (Google Gemini) ─────────────────────────────
 
 app.post('/api/captions', async (req, res) => {
-  const { items } = req.body;
+  const { items, platform = 'reel' } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'No items provided' });
   }
 
-  // If no Gemini API key, return demo captions
+  // If no API key, return demo captions
   if (!GEMINI_API_KEY) {
+    console.log('[Captions] No GEMINI_API_KEY — returning demo captions');
     return res.json({
-      captions: generateDemoCaptions(items),
+      captions: generateDemoCaptions(items, platform),
       source: 'demo'
     });
   }
@@ -344,110 +345,79 @@ app.post('/api/captions', async (req, res) => {
     // Build context from photo metadata
     const photoContext = items.map((item, i) => {
       const parts = [`Photo ${i + 1}`];
-      if (item.filename) parts.push(`filename: "${item.filename}"`);
+      if (item.filename) parts.push(`file: "${item.filename}"`);
       if (item.mimeType) parts.push(`type: ${item.mimeType}`);
       if (item.mediaMetadata) {
         const m = item.mediaMetadata;
         if (m.creationTime) parts.push(`taken: ${m.creationTime}`);
         if (m.width && m.height) parts.push(`${m.width}×${m.height}`);
-        if (m.photo) {
-          if (m.photo.cameraMake) parts.push(`camera: ${m.photo.cameraMake} ${m.photo.cameraModel || ''}`);
+        if (m.photo && m.photo.cameraMake) {
+          parts.push(`camera: ${m.photo.cameraMake} ${m.photo.cameraModel || ''}`);
         }
       }
       return parts.join(' | ');
     }).join('\n');
 
-    const prompt = `You are a social media caption writer. Based on the photo metadata below, generate captions for an Instagram Reel / YouTube Short video made from these photos.
+    const platformName = platform === 'short' ? 'YouTube Short' : 'Instagram Reel';
+
+    const prompt = `You are a social media caption writer. Based on the photo metadata below, generate captions for a ${platformName} video made from these photos.
 
 PHOTO METADATA:
 ${photoContext}
 
 Generate exactly 2 captions in JSON format:
-1. "engaging" — Fun, attention-grabbing social media style with relevant hashtags (3-5 hashtags). Use emojis sparingly. Keep it under 150 words.
-2. "professional" — Clean, polished, business-appropriate. No emojis. Include 2-3 relevant hashtags. Keep it under 100 words.
+1. "engaging" — Fun, attention-grabbing with relevant hashtags (3-5). Use emojis sparingly. Under 150 words.
+2. "professional" — Clean, polished, business-appropriate. No emojis. 2-3 hashtags. Under 100 words.
 
 Respond with ONLY valid JSON, no markdown, no backticks:
 {"engaging": "your engaging caption here", "professional": "your professional caption here"}`;
 
-    // Call Google Gemini REST API (free tier — no SDK needed)
+    // Call Gemini API directly via HTTP (no npm packages needed)
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const geminiBody = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.8,
+        maxOutputTokens: 1024,
+        responseMimeType: 'application/json'
+      }
+    });
 
-    const geminiResponse = await fetchJSON(geminiUrl, {
+    const response = await fetchJSON(geminiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1024
-        }
-      })
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(geminiBody)
+      },
+      body: geminiBody
     });
 
     // Extract text from Gemini response
-    const text = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!text) throw new Error('Empty response from Gemini');
 
-    if (!text) {
-      throw new Error('Empty response from Gemini API');
-    }
-
-    // Parse JSON from response (strip markdown fences if present)
+    // Parse JSON — Gemini with responseMimeType should return clean JSON
     const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const captions = JSON.parse(cleaned);
 
+    if (!captions.engaging || !captions.professional) {
+      throw new Error('Missing caption fields in response');
+    }
+
+    console.log('[Captions] Gemini AI captions generated successfully');
     res.json({ captions, source: 'ai' });
 
   } catch (err) {
-    console.error('[Captions] AI generation failed:', err.message);
-    // Fallback to demo captions on error
+    console.error('[Captions] Gemini generation failed:', err.message);
     res.json({
-      captions: generateDemoCaptions(items),
+      captions: generateDemoCaptions(items, platform),
       source: 'fallback',
       error: err.message
     });
   }
 });
 
-// Test endpoint for caption API connectivity
-app.get('/api/captions/test', async (req, res) => {
-  if (!GEMINI_API_KEY) {
-    return res.json({
-      status: 'demo',
-      message: 'No GEMINI_API_KEY set — using demo captions',
-      keyPrefix: 'not set'
-    });
-  }
-
-  try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-
-    const response = await fetchJSON(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: 'Say "ReelMaker captions ready!" in exactly 5 words.' }] }],
-        generationConfig: { maxOutputTokens: 50 }
-      })
-    });
-
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-    res.json({
-      status: 'ok',
-      model: 'gemini-2.5-flash',
-      response: text.trim(),
-      keyPrefix: GEMINI_API_KEY.slice(0, 8) + '...'
-    });
-  } catch (err) {
-    res.json({
-      status: 'error',
-      error: err.message,
-      keyPrefix: GEMINI_API_KEY.slice(0, 8) + '...'
-    });
-  }
-});
-
-function generateDemoCaptions(items) {
+function generateDemoCaptions(items, platform = 'reel') {
   const count = items.length;
   const filenames = items
     .map(it => it.filename || '')
@@ -458,9 +428,11 @@ function generateDemoCaptions(items) {
     ? ` featuring ${filenames.join(', ')}`
     : '';
 
+  const platformTag = platform === 'short' ? '#YouTubeShorts' : '#InstagramReels';
+
   return {
-    engaging: `✨ Just made this ${count}-photo reel${nameHint}! Check out these moments 📸🔥 #ReelMaker #ContentCreator #PhotoDump #ViralReel`,
-    professional: `A curated collection of ${count} moments${nameHint}. Created with ReelMaker. #Photography #ContentCreation #ReelMaker`
+    engaging: `✨ Check out this amazing ${count}-photo montage${nameHint}! Every frame tells a story. Which one's your favorite? Drop a comment below! 👇\n\n${platformTag} #PhotoMontage #ContentCreator #ViralVideo #ReelMaker`,
+    professional: `A curated visual compilation of ${count} photographs${nameHint}. Each image selected to create a cohesive narrative through visual storytelling.\n\n${platformTag} #Photography #VisualStorytelling`
   };
 }
 
@@ -524,10 +496,8 @@ async function runGenerationPipeline(jobId, items, photoDuration, sessionId) {
 
     let inputFiles;
     if (token && !hasMockItems) {
-      // Real photos mode — re-fetch baseUrls to avoid expiration
       inputFiles = await downloadRealMedia(items, token, jobDir, jobId);
     } else {
-      // Demo mode
       inputFiles = await generateDemoImages(items, jobDir);
     }
 
@@ -548,7 +518,7 @@ async function runGenerationPipeline(jobId, items, photoDuration, sessionId) {
       inputFiles.push(dup);
     }
 
-    // Step 2: Encode Reel (max 90s) — single FFmpeg encode
+    // Step 2: Encode Reel (max 90s)
     const reelPath = path.join(OUT_DIR, `reel_${jobId}.mp4`);
     const reelArgs = buildStitchArgs(inputFiles, reelPath, {
       photoDuration,
@@ -571,7 +541,7 @@ async function runGenerationPipeline(jobId, items, photoDuration, sessionId) {
 
     jobs[jobId].progress = 70;
 
-    // Step 3: Derive Short from Reel (stream copy, no re-encode — saves memory)
+    // Step 3: Derive Short from Reel (stream copy, no re-encode)
     const shortPath = path.join(OUT_DIR, `short_${jobId}.mp4`);
     jobs[jobId].status = 'Creating Short...';
     jobs[jobId].progress = 80;
@@ -615,7 +585,6 @@ async function runGenerationPipeline(jobId, items, photoDuration, sessionId) {
     jobs[jobId].status = 'error';
     jobs[jobId].error = err.message;
   } finally {
-    // Clean up temp directory
     try { fs.rmSync(jobDir, { recursive: true, force: true }); } catch {}
   }
 }
@@ -651,10 +620,8 @@ async function downloadRealMedia(items, token, jobDir, jobId) {
     jobs[jobId].status = `Downloading ${i + 1}/${freshItems.length}...`;
 
     if (isVideo) {
-      // Download video via baseUrl=dv
       const videoUrl = `${item.baseUrl}=dv`;
       await downloadFile(videoUrl, outFile);
-      // Trim to photoDuration seconds and normalize
       const trimmed = path.join(jobDir, `input_${i}_trimmed.mp4`);
       execSync(
         `ffmpeg -i "${outFile}" -t 3 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -c:v libx264 -preset fast -crf 23 -r 30 -pix_fmt yuv420p -an -y "${trimmed}"`,
@@ -662,7 +629,6 @@ async function downloadRealMedia(items, token, jobDir, jobId) {
       );
       fs.renameSync(trimmed, outFile);
     } else {
-      // Download photo via baseUrl with dimensions
       const photoUrl = `${item.baseUrl}=w1080-h1920`;
       await downloadFile(photoUrl, outFile);
     }
@@ -703,7 +669,6 @@ function buildStitchArgs(inputFiles, outputPath, {
   const n = inputFiles.length;
   const args = [];
 
-  // Input files — images get -loop 1 -t duration
   for (const f of inputFiles) {
     if (/\.(jpg|jpeg|png|webp)$/i.test(f)) {
       args.push('-loop', '1', '-t', String(photoDuration), '-i', f);
@@ -715,8 +680,6 @@ function buildStitchArgs(inputFiles, outputPath, {
   const filters = [];
 
   // Normalize EVERY input: resolution, fps, pixel format, timebase
-  // settb=1/30 is critical — without it, xfade gets mismatched timebases
-  // and produces frames the encoder can't write (0 bytes output)
   for (let i = 0; i < n; i++) {
     filters.push(
       `[${i}:v]scale=1080:1920:force_original_aspect_ratio=decrease,` +
@@ -750,13 +713,13 @@ function buildStitchArgs(inputFiles, outputPath, {
     '-filter_complex', filterComplex,
     '-map', '[outv]',
     '-c:v', 'libx264',
-    '-preset', 'ultrafast',       // Minimal memory footprint
-    '-tune', 'stillimage',        // Optimized for slideshow content
-    '-crf', '28',                 // Slightly lower quality = less memory
+    '-preset', 'ultrafast',
+    '-tune', 'stillimage',
+    '-crf', '28',
     '-pix_fmt', 'yuv420p',
     '-r', '30',
-    '-threads', '1',              // Single thread = ~50% less RAM
-    '-x264-params', 'rc-lookahead=10:ref=1:bframes=0',  // Minimize x264 buffers
+    '-threads', '1',
+    '-x264-params', 'rc-lookahead=10:ref=1:bframes=0',
     '-t', String(maxDuration),
     '-movflags', '+faststart',
     '-an',
@@ -877,6 +840,11 @@ function fetchJSON(url, options = {}) {
       headers: options.headers || {}
     };
 
+    // Content-Length is required for some APIs (Gemini, Anthropic)
+    if (options.body && !reqOptions.headers['Content-Length']) {
+      reqOptions.headers['Content-Length'] = Buffer.byteLength(options.body);
+    }
+
     const req = transport.request(reqOptions, (res) => {
       let body = '';
       res.on('data', chunk => body += chunk);
@@ -905,9 +873,6 @@ function fetchJSON(url, options = {}) {
 
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
-    const urlObj = new URL(url);
-    const transport = urlObj.protocol === 'https:' ? https : http;
-
     const follow = (u, depth = 0) => {
       if (depth > 5) return reject(new Error('Too many redirects'));
       const uObj = new URL(u);
@@ -937,7 +902,7 @@ app.listen(PORT, () => {
   console.log(`\n🎬 ReelMaker v2.4 — ${BASE_URL}`);
   console.log(`   FFmpeg queue: max 1 concurrent job`);
   console.log(`   OAuth: ${GOOGLE_CLIENT_ID ? 'configured' : 'demo mode only'}`);
-  console.log(`   Captions: ${GEMINI_API_KEY ? 'Gemini AI (free tier)' : 'demo mode only'}`);
+  console.log(`   Captions: ${GEMINI_API_KEY ? 'Gemini AI' : 'demo mode (no GEMINI_API_KEY)'}`);
   console.log(`   Tmp: ${TMP_DIR}`);
   console.log(`   Output: ${OUT_DIR}\n`);
 });

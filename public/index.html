@@ -1,641 +1,657 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ReelMaker — Create Reels & Shorts from Google Photos</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReelMaker — Turn Photos into Reels</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
   <style>
-    :root {
-      --deep-black: #0D0D0D;
-      --warm-cream: #F5F0EB;
-      --sunset-coral: #FF6B35;
-      --coral-hover: #E85A28;
-      --coral-glow: rgba(255, 107, 53, 0.25);
-      --surface: #1A1A1A;
-      --surface-2: #242424;
-      --border: #333;
-      --text-muted: #999;
-      --success: #2A9D8F;
-      --error: #E63946;
-    }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'DM Sans', sans-serif;
-      background: var(--deep-black);
-      color: var(--warm-cream);
-      min-height: 100vh;
-      -webkit-font-smoothing: antialiased;
+    :root {
+      --black: #0D0D0D;
+      --cream: #F5F0EB;
+      --coral: #FF6B35;
+      --coral-hover: #E55A2B;
+      --gray: #8A8A8A;
+      --dark-surface: #1A1A1A;
+      --card-surface: #222222;
     }
+    body { font-family: 'DM Sans', sans-serif; background: var(--black); color: var(--cream); min-height: 100vh; }
     h1, h2, h3 { font-family: 'Sora', sans-serif; }
-    .btn {
-      font-family: 'DM Sans', sans-serif;
-      font-weight: 600;
-      border: none;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
+    .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 28px; border: none; border-radius: 12px; font-family: 'DM Sans', sans-serif; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; text-decoration: none; }
+    .btn-primary { background: var(--coral); color: white; }
+    .btn-primary:hover { background: var(--coral-hover); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .btn-secondary { background: var(--card-surface); color: var(--cream); border: 1px solid #333; }
+    .btn-secondary:hover { background: #2a2a2a; }
+    .btn-ghost { background: transparent; color: var(--cream); border: 1px solid #444; }
+    .btn-ghost:hover { border-color: var(--coral); color: var(--coral); }
+    .btn-sm { padding: 8px 16px; font-size: 14px; border-radius: 8px; }
+
+    /* Photo Grid */
+    .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+    .photo-item { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: border-color 0.15s; }
+    .photo-item.selected { border-color: var(--coral); }
+    .photo-item img { width: 100%; height: 100%; object-fit: cover; }
+    .photo-badge { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%; background: var(--coral); color: white; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+    .photo-item .video-badge { position: absolute; bottom: 6px; left: 6px; background: rgba(0,0,0,0.7); color: white; font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+
+    /* Progress */
+    .progress-bar { width: 100%; height: 8px; background: var(--dark-surface); border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--coral); border-radius: 4px; transition: width 0.3s ease; }
+
+    /* Video Preview */
+    .video-card { background: var(--card-surface); border-radius: 16px; padding: 16px; }
+    .video-card video { width: 100%; border-radius: 10px; background: #000; }
+
+    /* Caption Styles */
+    .caption-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .caption-tab { padding: 10px 20px; border-radius: 10px; border: 1px solid #333; background: transparent; color: var(--cream); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+    .caption-tab.active { background: var(--coral); border-color: var(--coral); color: white; }
+    .caption-tab:hover:not(.active) { border-color: var(--coral); }
+    .caption-textarea { width: 100%; min-height: 140px; background: var(--dark-surface); border: 1px solid #333; border-radius: 12px; padding: 14px; color: var(--cream); font-family: 'DM Sans', sans-serif; font-size: 15px; line-height: 1.6; resize: vertical; }
+    .caption-textarea:focus { outline: none; border-color: var(--coral); }
+    .char-count { text-align: right; font-size: 13px; color: var(--gray); margin-top: 6px; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--card-surface); color: var(--cream); padding: 12px 24px; border-radius: 10px; font-size: 14px; font-weight: 500; border: 1px solid #333; z-index: 100; animation: slideUp 0.3s ease; }
+    @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+    /* Demo banner */
+    .demo-banner { background: var(--card-surface); border: 1px solid #333; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: var(--gray); display: flex; align-items: center; gap: 8px; }
+
+    /* Animations */
+    @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+    .float-emoji { font-size: 32px; animation: float 3s ease-in-out infinite; display: inline-block; }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .photo-grid { grid-template-columns: repeat(3, 1fr); }
+      .btn { padding: 12px 20px; font-size: 14px; }
     }
-    .btn-primary {
-      background: var(--sunset-coral);
-      color: white;
-      padding: 14px 28px;
-      font-size: 16px;
-    }
-    .btn-primary:hover { background: var(--coral-hover); transform: translateY(-1px); box-shadow: 0 8px 24px var(--coral-glow); }
-    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
-    .btn-secondary {
-      background: var(--surface-2);
-      color: var(--warm-cream);
-      padding: 12px 24px;
-      font-size: 14px;
-      border: 1px solid var(--border);
-    }
-    .btn-secondary:hover { background: var(--border); }
-    .btn-sm { padding: 8px 16px; font-size: 13px; border-radius: 8px; }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState, useEffect, useCallback, useRef } = React;
+    const { useState, useEffect, useRef, useCallback } = React;
 
+    // ─── App Root ──────────────────────────────────────────────
     function App() {
       const [screen, setScreen] = useState('landing');
       const [sessionId, setSessionId] = useState(null);
-      const [profile, setProfile] = useState(null);
-      const [photos, setPhotos] = useState([]);
-      const [nextPageToken, setNextPageToken] = useState(null);
-      const [selected, setSelected] = useState([]);
+      const [isDemoMode, setIsDemoMode] = useState(false);
+      const [selectedItems, setSelectedItems] = useState([]);
       const [jobId, setJobId] = useState(null);
-      const [jobStatus, setJobStatus] = useState(null);
-      const [captions, setCaptions] = useState(null);
+      const [jobData, setJobData] = useState(null);
+      const [captionData, setCaptionData] = useState(null);
       const [selectedCaption, setSelectedCaption] = useState('');
-      const [error, setError] = useState(null);
+      const [toast, setToast] = useState(null);
 
+      // Check URL for session param on mount
       useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const sid = params.get('session');
-        const err = params.get('error');
         if (sid) {
           setSessionId(sid);
-          localStorage.setItem('rm_session', sid);
-          window.history.replaceState({}, '', '/');
           setScreen('browser');
-        } else if (err) {
-          setError(`Authentication failed: ${err}`);
           window.history.replaceState({}, '', '/');
-        } else {
-          const saved = localStorage.getItem('rm_session');
-          if (saved) { setSessionId(saved); setScreen('browser'); }
+        }
+        const err = params.get('error');
+        if (err) {
+          showToast('Authentication failed. Try again.');
+          window.history.replaceState({}, '', '/');
         }
       }, []);
 
-      useEffect(() => {
-        if (!sessionId) return;
-        fetch('/api/profile', { headers: { 'x-session-id': sessionId } })
-          .then(r => r.ok ? r.json() : Promise.reject('Session expired'))
-          .then(setProfile)
-          .catch(() => { localStorage.removeItem('rm_session'); setSessionId(null); setScreen('landing'); });
-      }, [sessionId]);
+      function showToast(msg) {
+        setToast(msg);
+        setTimeout(() => setToast(null), 3000);
+      }
 
-      useEffect(() => {
-        if (screen === 'browser' && sessionId && photos.length === 0) loadPhotos();
-      }, [screen, sessionId]);
-
-      const loadPhotos = async (pageToken) => {
-        try {
-          const url = '/api/photos' + (pageToken ? `?pageToken=${pageToken}` : '');
-          const res = await fetch(url, { headers: { 'x-session-id': sessionId } });
-          if (!res.ok) throw new Error('Failed to load photos');
-          const data = await res.json();
-          setPhotos(prev => pageToken ? [...prev, ...data.items] : data.items);
-          setNextPageToken(data.nextPageToken);
-        } catch (err) { setError(err.message); }
-      };
-
-      const handleConnect = async () => {
+      function handleConnect() {
         setScreen('connecting');
-        try {
-          const res = await fetch('/auth/google/url');
-          const { authUrl } = await res.json();
-          if (authUrl) { window.location.href = authUrl; }
-          else { setScreen('browser'); loadDemoPhotos(); }
-        } catch (err) { setError('Connection failed'); setScreen('landing'); }
-      };
+        fetch('/auth/google/url')
+          .then(r => r.json())
+          .then(data => {
+            if (data.authUrl) {
+              window.location.href = data.authUrl;
+            } else {
+              // No OAuth configured — enter demo mode
+              setIsDemoMode(true);
+              setScreen('browser');
+            }
+          })
+          .catch(() => {
+            setIsDemoMode(true);
+            setScreen('browser');
+          });
+      }
 
-      const loadDemoPhotos = () => {
-        const demoItems = Array.from({ length: 6 }, (_, i) => ({
-          id: `demo_${i}`, thumbnail: null, filename: `Demo Photo ${i + 1}`,
-          isMock: true, mimeType: 'image/jpeg',
-          demoColor: ['#FF6B35','#E63946','#457B9D','#2A9D8F','#E9C46A','#6A4C93'][i]
-        }));
-        setPhotos(demoItems);
-      };
+      function handleDemoMode() {
+        setIsDemoMode(true);
+        setScreen('browser');
+      }
 
-      const toggleSelect = (item) => {
+      function handleGenerate(items) {
+        setSelectedItems(items);
+        setScreen('processing');
+        setCaptionData(null);
+        setSelectedCaption('');
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (sessionId) headers['x-session-id'] = sessionId;
+
+        // Start video generation
+        fetch('/api/generate', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ items, photoDuration: 3 })
+        })
+          .then(r => r.json())
+          .then(data => {
+            if (data.error) throw new Error(data.error);
+            setJobId(data.jobId);
+          })
+          .catch(err => {
+            showToast('Generation failed: ' + err.message);
+            setScreen('browser');
+          });
+
+        // Start caption generation in parallel
+        fetch('/api/captions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, platform: 'reel' })
+        })
+          .then(r => r.json())
+          .then(data => setCaptionData(data))
+          .catch(() => setCaptionData(null));
+      }
+
+      function handleDisconnect() {
+        if (sessionId) {
+          fetch('/api/disconnect', {
+            method: 'POST',
+            headers: { 'x-session-id': sessionId }
+          }).catch(() => {});
+        }
+        setSessionId(null);
+        setIsDemoMode(false);
+        setSelectedItems([]);
+        setJobId(null);
+        setJobData(null);
+        setCaptionData(null);
+        setSelectedCaption('');
+        setScreen('landing');
+      }
+
+      function handleStartOver() {
+        setSelectedItems([]);
+        setJobId(null);
+        setJobData(null);
+        setCaptionData(null);
+        setSelectedCaption('');
+        setScreen('browser');
+      }
+
+      return (
+        <div className="container">
+          {screen === 'landing' && (
+            <LandingScreen onConnect={handleConnect} onDemo={handleDemoMode} />
+          )}
+          {screen === 'connecting' && <ConnectingScreen />}
+          {screen === 'browser' && (
+            <BrowserScreen
+              sessionId={sessionId}
+              isDemoMode={isDemoMode}
+              onGenerate={handleGenerate}
+              onDisconnect={handleDisconnect}
+            />
+          )}
+          {screen === 'processing' && (
+            <ProcessingScreen
+              jobId={jobId}
+              onDone={(data) => { setJobData(data); setScreen('captions'); }}
+              onError={(msg) => showToast(msg)}
+              onRetry={() => handleGenerate(selectedItems)}
+            />
+          )}
+          {screen === 'captions' && (
+            <CaptionsScreen
+              captionData={captionData}
+              onUseCaption={(caption) => { setSelectedCaption(caption); setScreen('preview'); }}
+              onSkip={() => { setSelectedCaption(''); setScreen('preview'); }}
+            />
+          )}
+          {screen === 'preview' && (
+            <PreviewScreen
+              jobData={jobData}
+              caption={selectedCaption}
+              onStartOver={handleStartOver}
+              showToast={showToast}
+            />
+          )}
+          {toast && <div className="toast">{toast}</div>}
+        </div>
+      );
+    }
+
+    // ─── Landing Screen ────────────────────────────────────────
+    function LandingScreen({ onConnect, onDemo }) {
+      return (
+        <div style={{ textAlign: 'center', paddingTop: '15vh' }}>
+          <div style={{ marginBottom: 24 }}>
+            <span className="float-emoji" style={{ animationDelay: '0s' }}>📸</span>
+            <span className="float-emoji" style={{ animationDelay: '0.5s', margin: '0 12px' }}>🎬</span>
+            <span className="float-emoji" style={{ animationDelay: '1s' }}>✨</span>
+          </div>
+          <h1 style={{ fontSize: 42, fontWeight: 700, marginBottom: 12 }}>
+            Reel<span style={{ color: 'var(--coral)' }}>Maker</span>
+          </h1>
+          <p style={{ color: 'var(--gray)', fontSize: 18, marginBottom: 40, maxWidth: 480, margin: '0 auto 40px' }}>
+            Turn your Google Photos into Instagram Reels & YouTube Shorts — with AI-powered captions.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+            <button className="btn btn-primary" onClick={onConnect} style={{ fontSize: 18, padding: '16px 40px' }}>
+              Connect Google Photos
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={onDemo}>
+              Try Demo Mode
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Connecting Screen ─────────────────────────────────────
+    function ConnectingScreen() {
+      return (
+        <div style={{ textAlign: 'center', paddingTop: '25vh' }}>
+          <div style={{ fontSize: 48, marginBottom: 20, animation: 'float 2s ease-in-out infinite' }}>🔗</div>
+          <h2 style={{ marginBottom: 12 }}>Connecting to Google Photos...</h2>
+          <p style={{ color: 'var(--gray)' }}>You'll be redirected to sign in with Google.</p>
+        </div>
+      );
+    }
+
+    // ─── Browser Screen ────────────────────────────────────────
+    function BrowserScreen({ sessionId, isDemoMode, onGenerate, onDisconnect }) {
+      const [items, setItems] = useState([]);
+      const [selected, setSelected] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [nextPage, setNextPage] = useState(null);
+
+      useEffect(() => { loadPhotos(); }, []);
+
+      function loadPhotos(pageToken) {
+        setLoading(true);
+        if (isDemoMode || !sessionId) {
+          // Generate demo items
+          const demoItems = Array.from({ length: 12 }, (_, i) => ({
+            id: `demo-${i}`,
+            filename: `Demo Photo ${i + 1}`,
+            mimeType: 'image/jpeg',
+            thumbnail: `data:image/svg+xml,${encodeURIComponent(
+              `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">` +
+              `<rect fill="${['%23FF6B35','%23E63946','%23457B9D','%232A9D8F','%23E9C46A','%23F4A261','%23264653','%236A4C93','%231982C4','%238AC926','%23FF6B35','%23E63946'][i]}" width="400" height="400"/>` +
+              `<text x="200" y="210" text-anchor="middle" fill="white" font-size="24" font-family="sans-serif">${i + 1}</text></svg>`
+            )}`,
+            isMock: true
+          }));
+          setItems(demoItems);
+          setLoading(false);
+          return;
+        }
+        const url = '/api/photos' + (pageToken ? `?pageToken=${pageToken}` : '');
+        fetch(url, { headers: { 'x-session-id': sessionId } })
+          .then(r => r.json())
+          .then(data => {
+            setItems(prev => pageToken ? [...prev, ...data.items] : data.items);
+            setNextPage(data.nextPageToken);
+            setLoading(false);
+          })
+          .catch(() => setLoading(false));
+      }
+
+      function toggleSelect(item) {
         setSelected(prev => {
           const exists = prev.find(s => s.id === item.id);
           if (exists) return prev.filter(s => s.id !== item.id);
           if (prev.length >= 10) return prev;
           return [...prev, item];
         });
-      };
+      }
 
-      const handleGenerate = async () => {
-        if (selected.length < 2) { setError('Select at least 2 photos'); return; }
-        setScreen('processing');
-        setError(null);
-        try {
-          const res = await fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId || '' },
-            body: JSON.stringify({ items: selected, photoDuration: 3 })
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error);
-          setJobId(data.jobId);
-          // Generate captions in parallel
-          fetchCaptions(selected);
-        } catch (err) { setError(err.message); setScreen('browser'); }
-      };
-
-      const fetchCaptions = async (items) => {
-        try {
-          const res = await fetch('/api/captions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items })
-          });
-          const data = await res.json();
-          setCaptions(data.captions);
-        } catch (err) { console.error('Caption generation failed:', err); }
-      };
-
-      useEffect(() => {
-        if (!jobId || screen !== 'processing') return;
-        const interval = setInterval(async () => {
-          try {
-            const res = await fetch(`/api/generate/${jobId}`);
-            const data = await res.json();
-            setJobStatus(data);
-            if (data.status === 'done') { clearInterval(interval); setScreen('captions'); }
-            if (data.status === 'error') { clearInterval(interval); setError(data.error); }
-          } catch {}
-        }, 1000);
-        return () => clearInterval(interval);
-      }, [jobId, screen]);
-
-      const handleDisconnect = async () => {
-        if (sessionId) {
-          await fetch('/api/disconnect', { method: 'POST', headers: { 'x-session-id': sessionId } });
-        }
-        localStorage.removeItem('rm_session');
-        setSessionId(null); setProfile(null); setPhotos([]); setSelected([]); setScreen('landing');
-      };
-
-      const handleStartOver = () => {
-        setSelected([]); setJobId(null); setJobStatus(null);
-        setCaptions(null); setSelectedCaption(''); setError(null); setScreen('browser');
-      };
+      const selIdx = (id) => selected.findIndex(s => s.id === id);
 
       return (
-        <div style={{ minHeight: '100vh' }}>
-          <header style={{
-            padding: '16px 24px', display: 'flex', alignItems: 'center',
-            justifyContent: 'space-between', borderBottom: '1px solid var(--border)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 28 }}>🎬</span>
-              <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.5px' }}>
-                Reel<span style={{ color: 'var(--sunset-coral)' }}>Maker</span>
-              </h1>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <h2 style={{ fontSize: 24 }}>
+              {isDemoMode ? 'Demo' : 'Your'} Photos
+              <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--gray)', marginLeft: 8 }}>
+                {selected.length}/10 selected
+              </span>
+            </h2>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {selected.length >= 2 && (
+                <button className="btn btn-primary btn-sm" onClick={() => onGenerate(selected)}>
+                  Generate Videos ({selected.length})
+                </button>
+              )}
+              <button className="btn btn-ghost btn-sm" onClick={onDisconnect}>
+                {isDemoMode ? 'Exit Demo' : 'Disconnect'}
+              </button>
             </div>
-            {profile && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {profile.picture && <img src={profile.picture} alt="" style={{ width: 32, height: 32, borderRadius: '50%' }} />}
-                <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>{profile.name}</span>
-                <button className="btn btn-secondary btn-sm" onClick={handleDisconnect}>Disconnect</button>
-              </div>
-            )}
-          </header>
-
-          {error && (
-            <div style={{
-              position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
-              background: 'var(--error)', color: 'white', padding: '12px 24px',
-              borderRadius: 12, zIndex: 999, maxWidth: '90vw', fontSize: 14,
-              display: 'flex', gap: 12, alignItems: 'center',
-              boxShadow: '0 8px 32px rgba(230,57,70,0.4)'
-            }}>
-              <span style={{ flex: 1 }}>{error}</span>
-              <button onClick={() => setError(null)} style={{
-                background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: 18
-              }}>✕</button>
-            </div>
-          )}
-
-          {screen === 'landing' && <LandingScreen onConnect={handleConnect} />}
-          {screen === 'connecting' && <ConnectingScreen />}
-          {screen === 'browser' && (
-            <BrowserScreen photos={photos} selected={selected} onToggle={toggleSelect}
-              onGenerate={handleGenerate} onLoadMore={() => loadPhotos(nextPageToken)}
-              hasMore={!!nextPageToken} isDemoMode={!sessionId} />
-          )}
-          {screen === 'processing' && <ProcessingScreen jobStatus={jobStatus} onRetry={handleStartOver} error={error} />}
-          {screen === 'captions' && (
-            <CaptionsScreen captions={captions}
-              onDone={(cap) => { setSelectedCaption(cap); setScreen('preview'); }}
-              onSkip={() => { setSelectedCaption(''); setScreen('preview'); }} />
-          )}
-          {screen === 'preview' && (
-            <PreviewScreen jobStatus={jobStatus} selectedCaption={selectedCaption} onStartOver={handleStartOver} />
-          )}
-        </div>
-      );
-    }
-
-    // ─── Landing ─────────────────────────────────────────────
-    function LandingScreen({ onConnect }) {
-      return (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', minHeight: 'calc(100vh - 80px)',
-          padding: '40px 24px', textAlign: 'center'
-        }}>
-          <div style={{ fontSize: 72, marginBottom: 24, animation: 'float 3s ease-in-out infinite' }}>🎬</div>
-          <h2 style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-1px', marginBottom: 12 }}>
-            Create Reels & Shorts
-          </h2>
-          <p style={{ fontSize: 18, color: 'var(--text-muted)', maxWidth: 480, marginBottom: 40, lineHeight: 1.6 }}>
-            Connect your Google Photos, pick your favorites, and generate
-            scroll-stopping videos with AI captions in seconds.
-          </p>
-          <button className="btn btn-primary" onClick={onConnect} style={{ fontSize: 18, padding: '16px 40px' }}>
-            Connect Google Photos
-          </button>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 16 }}>
-            No Google account? A demo mode will load automatically.
-          </p>
-          <style>{`
-            @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
-          `}</style>
-        </div>
-      );
-    }
-
-    // ─── Connecting ──────────────────────────────────────────
-    function ConnectingScreen() {
-      return (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', minHeight: 'calc(100vh - 80px)'
-        }}>
-          <div className="spinner" />
-          <p style={{ marginTop: 24, color: 'var(--text-muted)' }}>Connecting to Google Photos...</p>
-          <style>{`
-            .spinner { width: 48px; height: 48px; border: 3px solid var(--border);
-              border-top-color: var(--sunset-coral); border-radius: 50%; animation: spin 0.8s linear infinite; }
-            @keyframes spin { to { transform: rotate(360deg); } }
-          `}</style>
-        </div>
-      );
-    }
-
-    // ─── Browser ─────────────────────────────────────────────
-    function BrowserScreen({ photos, selected, onToggle, onGenerate, onLoadMore, hasMore, isDemoMode }) {
-      const selectedIds = new Set(selected.map(s => s.id));
-      return (
-        <div style={{ padding: '24px', maxWidth: 1200, margin: '0 auto' }}>
-          {isDemoMode && (
-            <div style={{
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 12, padding: '12px 20px', marginBottom: 20,
-              fontSize: 14, color: 'var(--text-muted)'
-            }}>
-              🎨 <strong style={{ color: 'var(--warm-cream)' }}>Demo Mode</strong> — OAuth not configured. Using colored placeholders.
-            </div>
-          )}
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            marginBottom: 20, flexWrap: 'wrap', gap: 12
-          }}>
-            <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>
-              {selected.length}/10 selected{selected.length >= 2 ? ' ✓' : ' — pick at least 2'}
-            </p>
-            <button className="btn btn-primary" onClick={onGenerate} disabled={selected.length < 2}>
-              Generate Videos →
-            </button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
-            {photos.map((photo) => {
-              const isSelected = selectedIds.has(photo.id);
-              const idx = selected.findIndex(s => s.id === photo.id);
+
+          {isDemoMode && (
+            <div className="demo-banner">
+              🎨 Demo mode — using colored placeholders. Connect Google Photos for real media.
+            </div>
+          )}
+
+          {selected.length < 2 && selected.length > 0 && (
+            <div className="demo-banner">Select at least 2 photos to generate a video.</div>
+          )}
+
+          <div className="photo-grid">
+            {items.map(item => {
+              const idx = selIdx(item.id);
               return (
-                <div key={photo.id} onClick={() => onToggle(photo)} style={{
-                  position: 'relative', aspectRatio: '9/16', borderRadius: 12, overflow: 'hidden',
-                  cursor: 'pointer', border: isSelected ? '3px solid var(--sunset-coral)' : '3px solid transparent',
-                  transition: 'border-color 0.15s, transform 0.15s',
-                  transform: isSelected ? 'scale(0.96)' : 'scale(1)',
-                  background: photo.demoColor || 'var(--surface)'
-                }}>
-                  {photo.thumbnail && <img src={photo.thumbnail} alt={photo.filename}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />}
-                  {photo.demoColor && !photo.thumbnail && (
-                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center',
-                      justifyContent: 'center', fontSize: 13, fontWeight: 600, color: 'white',
-                      textShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>{photo.filename}</div>
-                  )}
-                  {isSelected && (
-                    <div style={{ position: 'absolute', top: 8, right: 8, width: 28, height: 28,
-                      borderRadius: '50%', background: 'var(--sunset-coral)', color: 'white',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 13, fontWeight: 700, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>{idx + 1}</div>
-                  )}
-                  {photo.mimeType?.startsWith('video/') && (
-                    <div style={{ position: 'absolute', bottom: 8, left: 8,
-                      background: 'rgba(0,0,0,0.7)', color: 'white',
-                      padding: '2px 8px', borderRadius: 6, fontSize: 11 }}>▶ Video</div>
+                <div
+                  key={item.id}
+                  className={`photo-item ${idx >= 0 ? 'selected' : ''}`}
+                  onClick={() => toggleSelect(item)}
+                >
+                  <img src={item.thumbnail} alt={item.filename} loading="lazy" />
+                  {idx >= 0 && <div className="photo-badge">{idx + 1}</div>}
+                  {item.mimeType && item.mimeType.startsWith('video/') && (
+                    <div className="video-badge">▶ Video</div>
                   )}
                 </div>
               );
             })}
           </div>
-          {hasMore && (
-            <div style={{ textAlign: 'center', marginTop: 24 }}>
-              <button className="btn btn-secondary" onClick={onLoadMore}>Load More Photos</button>
+
+          {loading && <p style={{ textAlign: 'center', color: 'var(--gray)', marginTop: 20 }}>Loading...</p>}
+
+          {nextPage && !loading && (
+            <div style={{ textAlign: 'center', marginTop: 20 }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => loadPhotos(nextPage)}>
+                Load More
+              </button>
             </div>
           )}
         </div>
       );
     }
 
-    // ─── Processing ──────────────────────────────────────────
-    function ProcessingScreen({ jobStatus, onRetry, error }) {
-      const progress = jobStatus?.progress || 0;
-      const status = jobStatus?.status || 'Starting...';
-      return (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', minHeight: 'calc(100vh - 80px)',
-          padding: '40px 24px', textAlign: 'center'
-        }}>
-          <div style={{ fontSize: 56, marginBottom: 24 }}>⚡</div>
-          <h2 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Creating Your Videos</h2>
-          <p style={{ color: 'var(--text-muted)', marginBottom: 32, fontSize: 15 }}>{status}</p>
-          <div style={{ width: '100%', maxWidth: 400, height: 6, background: 'var(--surface-2)',
-            borderRadius: 3, overflow: 'hidden', marginBottom: 32 }}>
-            <div style={{ width: `${progress}%`, height: '100%', background: 'var(--sunset-coral)',
-              borderRadius: 3, transition: 'width 0.5s ease' }} />
-          </div>
-          {error && (
-            <div style={{ marginTop: 16 }}>
-              <p style={{ color: 'var(--error)', marginBottom: 16, fontSize: 14, maxWidth: 500 }}>{error}</p>
-              <button className="btn btn-secondary" onClick={onRetry}>← Try Again</button>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // ─── Captions ────────────────────────────────────────────
-    function CaptionsScreen({ captions, onDone, onSkip }) {
-      const [activeTab, setActiveTab] = useState('engaging');
-      const [editedCaptions, setEditedCaptions] = useState({ engaging: '', professional: '' });
-      const [copied, setCopied] = useState(false);
-      const [loading, setLoading] = useState(!captions);
+    // ─── Processing Screen ─────────────────────────────────────
+    function ProcessingScreen({ jobId, onDone, onError, onRetry }) {
+      const [status, setStatus] = useState('Starting...');
+      const [progress, setProgress] = useState(0);
+      const [error, setError] = useState(null);
 
       useEffect(() => {
-        if (captions) {
-          setEditedCaptions({ engaging: captions.engaging || '', professional: captions.professional || '' });
-          setLoading(false);
-        }
-      }, [captions]);
+        if (!jobId) return;
+        const interval = setInterval(() => {
+          fetch(`/api/generate/${jobId}`)
+            .then(r => r.json())
+            .then(data => {
+              setStatus(data.status);
+              setProgress(data.progress || 0);
 
-      const handleCopy = async () => {
-        const text = editedCaptions[activeTab];
-        try { await navigator.clipboard.writeText(text); }
-        catch {
-          const ta = document.createElement('textarea');
-          ta.value = text; document.body.appendChild(ta);
-          ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-        }
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      };
+              if (data.status === 'done') {
+                clearInterval(interval);
+                onDone(data);
+              } else if (data.status === 'error') {
+                clearInterval(interval);
+                setError(data.error || 'Unknown error');
+              }
+            })
+            .catch(() => {});
+        }, 1000);
 
-      if (loading) {
+        return () => clearInterval(interval);
+      }, [jobId]);
+
+      if (error) {
         return (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', minHeight: 'calc(100vh - 80px)', padding: '40px 24px', textAlign: 'center'
-          }}>
-            <div className="spinner" />
-            <p style={{ marginTop: 24, color: 'var(--text-muted)' }}>Generating captions with AI...</p>
-            <style>{`
-              .spinner { width: 48px; height: 48px; border: 3px solid var(--border);
-                border-top-color: var(--sunset-coral); border-radius: 50%; animation: spin 0.8s linear infinite; }
-              @keyframes spin { to { transform: rotate(360deg); } }
-            `}</style>
+          <div style={{ textAlign: 'center', paddingTop: '20vh' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+            <h2 style={{ marginBottom: 12 }}>Generation Failed</h2>
+            <p style={{ color: 'var(--gray)', marginBottom: 24, maxWidth: 500, margin: '0 auto 24px', fontSize: 14, wordBreak: 'break-word' }}>{error}</p>
+            <button className="btn btn-primary" onClick={onRetry}>Retry</button>
           </div>
         );
       }
 
-      const tabs = [
-        { id: 'engaging', label: '🔥 Engaging', desc: 'Social media style with hashtags' },
-        { id: 'professional', label: '💼 Professional', desc: 'Clean & business-appropriate' }
-      ];
+      return (
+        <div style={{ textAlign: 'center', paddingTop: '20vh' }}>
+          <div style={{ fontSize: 48, marginBottom: 16, animation: 'float 2s ease-in-out infinite' }}>🎬</div>
+          <h2 style={{ marginBottom: 8 }}>Creating Your Videos</h2>
+          <p style={{ color: 'var(--gray)', marginBottom: 24 }}>{status}</p>
+          <div style={{ maxWidth: 400, margin: '0 auto' }}>
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+            <p style={{ color: 'var(--gray)', fontSize: 13, marginTop: 8 }}>{progress}%</p>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Captions Screen ───────────────────────────────────────
+    function CaptionsScreen({ captionData, onUseCaption, onSkip }) {
+      const [activeTab, setActiveTab] = useState('engaging');
+      const [editedCaptions, setEditedCaptions] = useState({ engaging: '', professional: '' });
+      const [loading, setLoading] = useState(!captionData);
+      const [copied, setCopied] = useState(false);
+
+      useEffect(() => {
+        if (captionData && captionData.captions) {
+          setEditedCaptions({
+            engaging: captionData.captions.engaging || '',
+            professional: captionData.captions.professional || ''
+          });
+          setLoading(false);
+        }
+      }, [captionData]);
+
+      // If captions are still loading after 10s, stop waiting
+      useEffect(() => {
+        if (!loading) return;
+        const timeout = setTimeout(() => setLoading(false), 10000);
+        return () => clearTimeout(timeout);
+      }, [loading]);
+
+      const currentCaption = editedCaptions[activeTab] || '';
+      const source = captionData?.source || 'demo';
+
+      function handleCopy() {
+        navigator.clipboard.writeText(currentCaption).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }).catch(() => {});
+      }
+
+      if (loading) {
+        return (
+          <div style={{ textAlign: 'center', paddingTop: '20vh' }}>
+            <div style={{ fontSize: 48, marginBottom: 16, animation: 'float 2s ease-in-out infinite' }}>✍️</div>
+            <h2 style={{ marginBottom: 8 }}>Generating Captions...</h2>
+            <p style={{ color: 'var(--gray)' }}>AI is crafting the perfect words for your video.</p>
+          </div>
+        );
+      }
 
       return (
-        <div style={{ padding: '24px', maxWidth: 700, margin: '0 auto' }}>
+        <div style={{ paddingTop: '8vh', maxWidth: 600, margin: '0 auto' }}>
           <div style={{ textAlign: 'center', marginBottom: 32 }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>✍️</div>
-            <h2 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Your Post Caption</h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: 15 }}>
-              AI-generated captions for your Instagram or YouTube post. Edit to your liking.
+            <h2 style={{ fontSize: 28, marginBottom: 8 }}>Your Captions</h2>
+            <p style={{ color: 'var(--gray)', fontSize: 15 }}>
+              {source === 'ai' ? 'AI-generated captions' : source === 'fallback' ? 'Using template captions (AI unavailable)' : 'Demo captions'} — edit them to your liking.
             </p>
           </div>
 
-          {/* Style Tabs */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-            {tabs.map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-                flex: 1, padding: '14px 16px', borderRadius: 12,
-                border: activeTab === tab.id ? '2px solid var(--sunset-coral)' : '2px solid var(--border)',
-                background: activeTab === tab.id ? 'rgba(255, 107, 53, 0.1)' : 'var(--surface)',
-                color: activeTab === tab.id ? 'var(--sunset-coral)' : 'var(--warm-cream)',
-                cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left'
-              }}>
-                <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>{tab.label}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tab.desc}</div>
-              </button>
-            ))}
+          <div className="caption-tabs">
+            <button
+              className={`caption-tab ${activeTab === 'engaging' ? 'active' : ''}`}
+              onClick={() => setActiveTab('engaging')}
+            >
+              ✨ Engaging
+            </button>
+            <button
+              className={`caption-tab ${activeTab === 'professional' ? 'active' : ''}`}
+              onClick={() => setActiveTab('professional')}
+            >
+              💼 Professional
+            </button>
           </div>
 
-          {/* Caption Editor */}
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 16, overflow: 'hidden', marginBottom: 20
-          }}>
-            <textarea
-              value={editedCaptions[activeTab]}
-              onChange={(e) => setEditedCaptions(prev => ({ ...prev, [activeTab]: e.target.value }))}
-              style={{
-                width: '100%', minHeight: 180, padding: 20, background: 'transparent',
-                color: 'var(--warm-cream)', border: 'none', outline: 'none', resize: 'vertical',
-                fontFamily: "'DM Sans', sans-serif", fontSize: 15, lineHeight: 1.6
-              }}
-            />
-            <div style={{
-              padding: '12px 20px', borderTop: '1px solid var(--border)',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-            }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                {editedCaptions[activeTab].length} characters
-              </span>
-              <button className="btn btn-sm" onClick={handleCopy} style={{
-                background: copied ? 'var(--success)' : 'var(--surface-2)',
-                color: 'white', border: '1px solid var(--border)', transition: 'all 0.2s'
-              }}>
-                {copied ? '✓ Copied!' : '📋 Copy'}
-              </button>
-            </div>
+          <textarea
+            className="caption-textarea"
+            value={currentCaption}
+            onChange={e => setEditedCaptions(prev => ({ ...prev, [activeTab]: e.target.value }))}
+            placeholder="Your caption will appear here..."
+          />
+          <div className="char-count">{currentCaption.length} characters</div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+            <button className="btn btn-secondary btn-sm" onClick={handleCopy}>
+              {copied ? '✓ Copied' : '📋 Copy'}
+            </button>
           </div>
 
-          {/* Actions */}
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-            <button className="btn btn-secondary" onClick={onSkip}>Skip Caption →</button>
-            <button className="btn btn-primary" onClick={() => onDone(editedCaptions[activeTab])}>
+          <div style={{ display: 'flex', gap: 12, marginTop: 32, justifyContent: 'center' }}>
+            <button className="btn btn-primary" onClick={() => onUseCaption(currentCaption)}>
               Use This Caption →
+            </button>
+            <button className="btn btn-ghost" onClick={onSkip}>
+              Skip Captions
             </button>
           </div>
         </div>
       );
     }
 
-    // ─── Preview ─────────────────────────────────────────────
-    function PreviewScreen({ jobStatus, selectedCaption, onStartOver }) {
-      if (!jobStatus) return null;
-      const [captionCopied, setCaptionCopied] = useState(false);
+    // ─── Preview Screen ────────────────────────────────────────
+    function PreviewScreen({ jobData, caption, onStartOver, showToast }) {
+      const [copied, setCopied] = useState(false);
 
-      const handleDownload = (url, filename) => {
-        const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
-      };
+      function handleCopyCaption() {
+        navigator.clipboard.writeText(caption).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }).catch(() => {});
+      }
 
-      const handleShare = async (url) => {
+      function handleDownload(url, filename) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+      }
+
+      function handleShare(url, title) {
         if (navigator.share) {
-          try {
-            const res = await fetch(url);
-            const blob = await res.blob();
-            const file = new File([blob], 'reelmaker-video.mp4', { type: 'video/mp4' });
-            await navigator.share({ files: [file], title: 'Made with ReelMaker' });
-          } catch {}
+          navigator.share({ title, url: window.location.origin + url }).catch(() => {});
+        } else {
+          showToast('Share not supported on this device');
         }
-      };
+      }
 
-      const handleCopyCaption = async () => {
-        try { await navigator.clipboard.writeText(selectedCaption); }
-        catch {}
-        setCaptionCopied(true);
-        setTimeout(() => setCaptionCopied(false), 2000);
-      };
-
-      const canShare = !!navigator.share;
+      if (!jobData) return null;
 
       return (
-        <div style={{ padding: '24px', maxWidth: 900, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: 32 }}>
-            <h2 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>Your Videos Are Ready! 🎉</h2>
-            <p style={{ color: 'var(--text-muted)' }}>Download or share your Reel and Short</p>
+        <div style={{ paddingTop: '4vh' }}>
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <h2 style={{ fontSize: 28, marginBottom: 8 }}>Your Videos Are Ready! 🎉</h2>
           </div>
 
-          {/* Caption Card */}
-          {selectedCaption && (
-            <div style={{
-              background: 'var(--surface)', borderRadius: 16,
-              border: '1px solid var(--border)', padding: 20, marginBottom: 24
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <h3 style={{ fontSize: 15 }}>✍️ Your Caption</h3>
-                <button className="btn btn-sm" onClick={handleCopyCaption} style={{
-                  background: captionCopied ? 'var(--success)' : 'var(--surface-2)',
-                  color: 'white', border: '1px solid var(--border)'
-                }}>
-                  {captionCopied ? '✓ Copied!' : '📋 Copy Caption'}
+          {caption && (
+            <div style={{ background: 'var(--card-surface)', borderRadius: 12, padding: 16, marginBottom: 24, position: 'relative' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, color: 'var(--gray)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Caption</span>
+                <button className="btn btn-ghost btn-sm" style={{ padding: '4px 10px', fontSize: 12 }} onClick={handleCopyCaption}>
+                  {copied ? '✓' : '📋'}
                 </button>
               </div>
-              <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--warm-cream)',
-                whiteSpace: 'pre-wrap', opacity: 0.9 }}>{selectedCaption}</p>
+              <p style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--cream)' }}>{caption}</p>
             </div>
           )}
 
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: 24, marginBottom: 32
-          }}>
-            {/* Reel */}
-            {jobStatus.reelUrl && (
-              <div style={{ background: 'var(--surface)', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border)' }}>
-                <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3 style={{ fontSize: 16 }}>📱 Instagram Reel</h3>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    {jobStatus.reelInfo?.duration?.toFixed(1)}s • 1080×1920
-                  </span>
-                </div>
-                <div style={{ padding: '0 16px' }}>
-                  <video src={jobStatus.reelUrl} controls preload="metadata" playsInline
-                    style={{ width: '100%', maxHeight: 400, borderRadius: 8, background: '#000' }} />
-                </div>
-                <div style={{ padding: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary btn-sm" style={{ flex: 1 }}
-                    onClick={() => handleDownload(jobStatus.reelUrl, 'reel.mp4')}>⬇ Download</button>
-                  {canShare && (
-                    <button className="btn btn-secondary btn-sm" style={{ flex: 1 }}
-                      onClick={() => handleShare(jobStatus.reelUrl)}>📤 Share</button>
-                  )}
-                </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div className="video-card">
+              <h3 style={{ fontSize: 16, marginBottom: 12 }}>Instagram Reel</h3>
+              {jobData.reelUrl && (
+                <video
+                  src={jobData.reelUrl}
+                  controls
+                  preload="metadata"
+                  playsInline
+                  style={{ aspectRatio: '9/16', objectFit: 'contain' }}
+                />
+              )}
+              {jobData.reelInfo && (
+                <p style={{ fontSize: 12, color: 'var(--gray)', marginTop: 8 }}>
+                  {jobData.reelInfo.duration?.toFixed(1)}s · {(jobData.reelInfo.size / 1024 / 1024).toFixed(1)}MB
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => handleDownload(jobData.reelUrl, 'reel.mp4')}>
+                  Download
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => handleShare(jobData.reelUrl, 'My ReelMaker Reel')}>
+                  Share
+                </button>
               </div>
-            )}
-            {/* Short */}
-            {jobStatus.shortUrl && (
-              <div style={{ background: 'var(--surface)', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border)' }}>
-                <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3 style={{ fontSize: 16 }}>▶️ YouTube Short</h3>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    {jobStatus.shortInfo?.duration?.toFixed(1)}s • 1080×1920
-                  </span>
-                </div>
-                <div style={{ padding: '0 16px' }}>
-                  <video src={jobStatus.shortUrl} controls preload="metadata" playsInline
-                    style={{ width: '100%', maxHeight: 400, borderRadius: 8, background: '#000' }} />
-                </div>
-                <div style={{ padding: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary btn-sm" style={{ flex: 1 }}
-                    onClick={() => handleDownload(jobStatus.shortUrl, 'short.mp4')}>⬇ Download</button>
-                  {canShare && (
-                    <button className="btn btn-secondary btn-sm" style={{ flex: 1 }}
-                      onClick={() => handleShare(jobStatus.shortUrl)}>📤 Share</button>
-                  )}
-                </div>
+            </div>
+
+            <div className="video-card">
+              <h3 style={{ fontSize: 16, marginBottom: 12 }}>YouTube Short</h3>
+              {jobData.shortUrl && (
+                <video
+                  src={jobData.shortUrl}
+                  controls
+                  preload="metadata"
+                  playsInline
+                  style={{ aspectRatio: '9/16', objectFit: 'contain' }}
+                />
+              )}
+              {jobData.shortInfo && (
+                <p style={{ fontSize: 12, color: 'var(--gray)', marginTop: 8 }}>
+                  {jobData.shortInfo.duration?.toFixed(1)}s · {(jobData.shortInfo.size / 1024 / 1024).toFixed(1)}MB
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => handleDownload(jobData.shortUrl, 'short.mp4')}>
+                  Download
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => handleShare(jobData.shortUrl, 'My ReelMaker Short')}>
+                  Share
+                </button>
               </div>
-            )}
+            </div>
           </div>
 
-          <div style={{ textAlign: 'center', display: 'flex', gap: 12, justifyContent: 'center' }}>
-            <button className="btn btn-secondary" onClick={onStartOver}>← Start Over</button>
+          <div style={{ textAlign: 'center', marginTop: 32 }}>
+            <button className="btn btn-secondary" onClick={onStartOver}>
+              ← Start Over
+            </button>
           </div>
         </div>
       );
     }
 
+    // ─── Render ────────────────────────────────────────────────
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
