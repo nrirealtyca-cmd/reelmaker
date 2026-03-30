@@ -323,7 +323,15 @@ app.post('/api/disconnect', async (req, res) => {
   res.json({ success: true });
 });
 
-// ─── AI Captions (Google Gemini) ─────────────────────────────
+// ─── AI Captions (Google Gemini) — 5 Tones ──────────────────
+
+const CAPTION_TONES = {
+  engaging:      'Fun, attention-grabbing, use 1-2 emojis, include a call to action (ask a question or prompt comments). Add 3-4 relevant hashtags at the end.',
+  professional:  'Clean, polished, business-appropriate. No emojis. Authoritative but approachable. Add 2-3 industry-relevant hashtags at the end.',
+  witty:         'Clever wordplay, puns, or humor. Personality-driven, slightly cheeky. Use 1 emoji max. Add 3-4 fun hashtags at the end.',
+  inspirational: 'Motivational, uplifting, poetic. Think quote-style caption. Use 1-2 emojis. Add 2-3 aspirational hashtags at the end.',
+  storyteller:   'Narrative voice, behind-the-scenes feel, personal and warm. As if sharing with a friend. Use 1 emoji max. Add 2-3 hashtags at the end.'
+};
 
 app.post('/api/captions', async (req, res) => {
   const { items, platform = 'reel' } = req.body;
@@ -337,6 +345,7 @@ app.post('/api/captions', async (req, res) => {
     console.log('[Captions] No GEMINI_API_KEY — returning demo captions');
     return res.json({
       captions: generateDemoCaptions(items, platform),
+      tones: Object.keys(CAPTION_TONES),
       source: 'demo'
     });
   }
@@ -351,34 +360,45 @@ app.post('/api/captions', async (req, res) => {
         const m = item.mediaMetadata;
         if (m.creationTime) parts.push(`taken: ${m.creationTime}`);
         if (m.width && m.height) parts.push(`${m.width}×${m.height}`);
-        if (m.photo && m.photo.cameraMake) {
-          parts.push(`camera: ${m.photo.cameraMake} ${m.photo.cameraModel || ''}`);
+        if (m.photo) {
+          if (m.photo.cameraMake) parts.push(`camera: ${m.photo.cameraMake} ${m.photo.cameraModel || ''}`);
+          if (m.photo.focalLength) parts.push(`${m.photo.focalLength}mm f/${m.photo.apertureFNumber}`);
+          if (m.photo.isoEquivalent) parts.push(`ISO ${m.photo.isoEquivalent}`);
         }
       }
       return parts.join(' | ');
     }).join('\n');
 
     const platformName = platform === 'short' ? 'YouTube Short' : 'Instagram Reel';
+    const toneKeys = Object.keys(CAPTION_TONES);
 
-    const prompt = `You are a social media caption writer. Based on the photo metadata below, generate captions for a ${platformName} video made from these photos.
+    const toneInstructions = toneKeys.map((key, i) =>
+      `${i + 1}. "${key}" — ${CAPTION_TONES[key]}`
+    ).join('\n');
+
+    const prompt = `You are an expert social media caption writer. Based on the photo metadata below, generate captions for a ${platformName} video.
+
+STRICT RULES:
+- Each caption must be EXACTLY 30 words (not counting hashtags). Count carefully.
+- Emojis are allowed where specified and count as words.
+- Hashtags go at the end and do NOT count toward the 30-word limit.
+- Reference specific details from the metadata (locations, food, animals, camera gear, time of day, etc.)
 
 PHOTO METADATA:
 ${photoContext}
 
-Generate exactly 2 captions in JSON format:
-1. "engaging" — Fun, attention-grabbing with relevant hashtags (3-5). Use emojis sparingly. Under 150 words.
-2. "professional" — Clean, polished, business-appropriate. No emojis. 2-3 hashtags. Under 100 words.
+Generate exactly 5 captions, one per tone:
+${toneInstructions}
 
-Respond with ONLY valid JSON, no markdown, no backticks:
-{"engaging": "your engaging caption here", "professional": "your professional caption here"}`;
+Respond with ONLY valid JSON, no markdown:
+{"engaging":"...","professional":"...","witty":"...","inspirational":"...","storyteller":"..."}`;
 
-    // Call Gemini API directly via HTTP (no npm packages needed)
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     const geminiBody = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.8,
-        maxOutputTokens: 1024,
+        temperature: 0.9,
+        maxOutputTokens: 2048,
         responseMimeType: 'application/json'
       }
     });
@@ -392,25 +412,26 @@ Respond with ONLY valid JSON, no markdown, no backticks:
       body: geminiBody
     });
 
-    // Extract text from Gemini response
     const text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     if (!text) throw new Error('Empty response from Gemini');
 
-    // Parse JSON — Gemini with responseMimeType should return clean JSON
     const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const captions = JSON.parse(cleaned);
 
-    if (!captions.engaging || !captions.professional) {
-      throw new Error('Missing caption fields in response');
+    // Validate all 5 tones present
+    const missing = toneKeys.filter(k => !captions[k]);
+    if (missing.length > 0) {
+      throw new Error(`Missing tones: ${missing.join(', ')}`);
     }
 
-    console.log('[Captions] Gemini AI captions generated successfully');
-    res.json({ captions, source: 'ai' });
+    console.log('[Captions] Gemini AI — 5 tones generated successfully');
+    res.json({ captions, tones: toneKeys, source: 'ai' });
 
   } catch (err) {
     console.error('[Captions] Gemini generation failed:', err.message);
     res.json({
       captions: generateDemoCaptions(items, platform),
+      tones: Object.keys(CAPTION_TONES),
       source: 'fallback',
       error: err.message
     });
@@ -419,20 +440,16 @@ Respond with ONLY valid JSON, no markdown, no backticks:
 
 function generateDemoCaptions(items, platform = 'reel') {
   const count = items.length;
-  const filenames = items
-    .map(it => it.filename || '')
-    .filter(f => f && !f.startsWith('Demo'))
-    .slice(0, 3);
-
-  const nameHint = filenames.length > 0
-    ? ` featuring ${filenames.join(', ')}`
-    : '';
-
-  const platformTag = platform === 'short' ? '#YouTubeShorts' : '#InstagramReels';
+  const filenames = items.map(it => it.filename || '').filter(f => f && !f.startsWith('Demo'));
+  const hint = filenames.length > 0 ? filenames[0].replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ') : 'moments';
+  const tag = platform === 'short' ? '#YouTubeShorts' : '#InstagramReels';
 
   return {
-    engaging: `✨ Check out this amazing ${count}-photo montage${nameHint}! Every frame tells a story. Which one's your favorite? Drop a comment below! 👇\n\n${platformTag} #PhotoMontage #ContentCreator #ViralVideo #ReelMaker`,
-    professional: `A curated visual compilation of ${count} photographs${nameHint}. Each image selected to create a cohesive narrative through visual storytelling.\n\n${platformTag} #Photography #VisualStorytelling`
+    engaging:      `✨ ${count} frames of pure magic capturing ${hint} and so much more! Every second hits different. Which moment is your absolute favorite? Drop it below! 👇 ${tag} #PhotoMontage #ContentCreator #ViralContent`,
+    professional:  `A carefully curated visual compilation of ${count} photographs showcasing ${hint}. Each frame selected for composition and narrative impact within this cohesive short-form presentation. ${tag} #Photography #VisualStorytelling`,
+    witty:         `POV: you picked ${count} photos and now you are basically a film director. Someone get this person an award already. No big deal. 🎬 ${tag} #AccidentalFilmmaker #MainCharacterEnergy #ContentLife`,
+    inspirational: `Every photograph holds a story waiting to be told. These ${count} moments remind us that beauty exists in ${hint} and in the courage to capture it. ✨ ${tag} #LiveInspired #ChaseMoments`,
+    storyteller:   `So I was going through my camera roll and found these ${count} gems. Each one brought back a wave of memories — especially ${hint}. Had to share. 📸 ${tag} #BehindTheScenes #RealMoments`
   };
 }
 

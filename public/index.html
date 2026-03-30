@@ -225,8 +225,20 @@
           {screen === 'captions' && (
             <CaptionsScreen
               captionData={captionData}
+              selectedItems={selectedItems}
               onUseCaption={(caption) => { setSelectedCaption(caption); setScreen('preview'); }}
               onSkip={() => { setSelectedCaption(''); setScreen('preview'); }}
+              onRegenerate={() => {
+                setCaptionData(null);
+                fetch('/api/captions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ items: selectedItems, platform: 'reel' })
+                })
+                  .then(r => r.json())
+                  .then(data => setCaptionData(data))
+                  .catch(() => setCaptionData(null));
+              }}
             />
           )}
           {screen === 'preview' && (
@@ -510,31 +522,52 @@
     }
 
     // ─── Captions Screen ───────────────────────────────────────
-    function CaptionsScreen({ captionData, onUseCaption, onSkip }) {
+    const TONE_META = {
+      engaging:      { icon: '✨', label: 'Engaging' },
+      professional:  { icon: '💼', label: 'Professional' },
+      witty:         { icon: '😏', label: 'Witty' },
+      inspirational: { icon: '🌟', label: 'Inspirational' },
+      storyteller:   { icon: '📖', label: 'Storyteller' }
+    };
+
+    function CaptionsScreen({ captionData, selectedItems, onUseCaption, onSkip, onRegenerate }) {
       const [activeTab, setActiveTab] = useState('engaging');
-      const [editedCaptions, setEditedCaptions] = useState({ engaging: '', professional: '' });
+      const [editedCaptions, setEditedCaptions] = useState({});
       const [loading, setLoading] = useState(!captionData);
+      const [regenerating, setRegenerating] = useState(false);
       const [copied, setCopied] = useState(false);
 
       useEffect(() => {
         if (captionData && captionData.captions) {
-          setEditedCaptions({
-            engaging: captionData.captions.engaging || '',
-            professional: captionData.captions.professional || ''
+          setEditedCaptions(prev => {
+            // Only set tones that haven't been manually edited
+            const updated = { ...prev };
+            Object.keys(captionData.captions).forEach(key => {
+              if (!updated[key] || regenerating) {
+                updated[key] = captionData.captions[key];
+              }
+            });
+            return updated;
           });
           setLoading(false);
+          setRegenerating(false);
         }
       }, [captionData]);
 
-      // If captions are still loading after 10s, stop waiting
+      // Timeout if captions take too long
       useEffect(() => {
-        if (!loading) return;
-        const timeout = setTimeout(() => setLoading(false), 10000);
+        if (!loading && !regenerating) return;
+        const timeout = setTimeout(() => { setLoading(false); setRegenerating(false); }, 15000);
         return () => clearTimeout(timeout);
-      }, [loading]);
+      }, [loading, regenerating]);
 
       const currentCaption = editedCaptions[activeTab] || '';
       const source = captionData?.source || 'demo';
+      const toneKeys = Object.keys(TONE_META);
+
+      // Word count (split on whitespace, exclude hashtag-only tokens)
+      const words = currentCaption.trim().split(/\s+/).filter(w => w && !w.startsWith('#'));
+      const wordCount = currentCaption.trim() ? words.length : 0;
 
       function handleCopy() {
         navigator.clipboard.writeText(currentCaption).then(() => {
@@ -543,56 +576,71 @@
         }).catch(() => {});
       }
 
+      function handleRegenerate() {
+        setRegenerating(true);
+        setEditedCaptions({});
+        onRegenerate();
+      }
+
       if (loading) {
         return (
           <div style={{ textAlign: 'center', paddingTop: '20vh' }}>
             <div style={{ fontSize: 48, marginBottom: 16, animation: 'float 2s ease-in-out infinite' }}>✍️</div>
             <h2 style={{ marginBottom: 8 }}>Generating Captions...</h2>
-            <p style={{ color: 'var(--gray)' }}>AI is crafting the perfect words for your video.</p>
+            <p style={{ color: 'var(--gray)' }}>AI is crafting 5 caption styles for your video.</p>
           </div>
         );
       }
 
       return (
-        <div style={{ paddingTop: '8vh', maxWidth: 600, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <div style={{ paddingTop: '4vh', maxWidth: 640, margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <h2 style={{ fontSize: 28, marginBottom: 8 }}>Your Captions</h2>
             <p style={{ color: 'var(--gray)', fontSize: 15 }}>
-              {source === 'ai' ? 'AI-generated captions' : source === 'fallback' ? 'Using template captions (AI unavailable)' : 'Demo captions'} — edit them to your liking.
+              {source === 'ai' ? 'AI-generated' : source === 'fallback' ? 'Template (AI unavailable)' : 'Demo'} · 5 tones · ~30 words each · edit freely
             </p>
           </div>
 
-          <div className="caption-tabs">
-            <button
-              className={`caption-tab ${activeTab === 'engaging' ? 'active' : ''}`}
-              onClick={() => setActiveTab('engaging')}
-            >
-              ✨ Engaging
-            </button>
-            <button
-              className={`caption-tab ${activeTab === 'professional' ? 'active' : ''}`}
-              onClick={() => setActiveTab('professional')}
-            >
-              💼 Professional
-            </button>
+          {/* Tone tabs — scrollable on mobile */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 16, overflowX: 'auto', paddingBottom: 4 }}>
+            {toneKeys.map(key => (
+              <button
+                key={key}
+                className={`caption-tab ${activeTab === key ? 'active' : ''}`}
+                onClick={() => setActiveTab(key)}
+                style={{ whiteSpace: 'nowrap', flex: 'none' }}
+              >
+                {TONE_META[key].icon} {TONE_META[key].label}
+              </button>
+            ))}
           </div>
 
           <textarea
             className="caption-textarea"
             value={currentCaption}
             onChange={e => setEditedCaptions(prev => ({ ...prev, [activeTab]: e.target.value }))}
-            placeholder="Your caption will appear here..."
+            placeholder={regenerating ? 'Regenerating...' : 'Your caption will appear here...'}
+            disabled={regenerating}
+            style={regenerating ? { opacity: 0.5 } : {}}
           />
-          <div className="char-count">{currentCaption.length} characters</div>
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            <button className="btn btn-secondary btn-sm" onClick={handleCopy}>
-              {copied ? '✓ Copied' : '📋 Copy'}
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+            <span style={{ fontSize: 13, color: wordCount >= 28 && wordCount <= 32 ? '#2A9D8F' : 'var(--gray)' }}>
+              {wordCount} words {wordCount >= 28 && wordCount <= 32 ? '✓' : ''} · {currentCaption.length} chars
+            </span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-secondary btn-sm" onClick={handleCopy} disabled={regenerating}>
+                {copied ? '✓ Copied' : '📋 Copy'}
+              </button>
+              <button className="btn btn-secondary btn-sm" onClick={handleRegenerate} disabled={regenerating}
+                style={regenerating ? { opacity: 0.5 } : {}}>
+                {regenerating ? '⏳ Generating...' : '🔄 Regenerate'}
+              </button>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 12, marginTop: 32, justifyContent: 'center' }}>
-            <button className="btn btn-primary" onClick={() => onUseCaption(currentCaption)}>
+          <div style={{ display: 'flex', gap: 12, marginTop: 28, justifyContent: 'center' }}>
+            <button className="btn btn-primary" onClick={() => onUseCaption(currentCaption)} disabled={regenerating}>
               Use This Caption →
             </button>
             <button className="btn btn-ghost" onClick={onSkip}>
