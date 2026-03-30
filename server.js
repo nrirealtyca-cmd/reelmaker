@@ -415,8 +415,30 @@ Respond with ONLY valid JSON, no markdown:
     const text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     if (!text) throw new Error('Empty response from Gemini');
 
-    const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    const captions = JSON.parse(cleaned);
+    // Gemini sometimes returns unescaped newlines/tabs inside JSON strings
+    // which breaks JSON.parse(). Fix: replace control chars inside string values.
+    let cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+    // Replace literal newlines/tabs inside JSON string values with spaces
+    // (between quotes, not structural newlines between keys)
+    cleaned = cleaned.replace(/[\n\r\t]/g, ' ');
+
+    // Collapse multiple spaces
+    cleaned = cleaned.replace(/\s{2,}/g, ' ');
+
+    let captions;
+    try {
+      captions = JSON.parse(cleaned);
+    } catch (parseErr) {
+      // Last resort: try to extract each tone via regex
+      console.warn('[Captions] JSON parse failed, attempting regex extraction:', parseErr.message);
+      captions = {};
+      for (const key of toneKeys) {
+        const regex = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 's');
+        const match = cleaned.match(regex);
+        if (match) captions[key] = match[1].replace(/\\"/g, '"').replace(/\\n/g, ' ');
+      }
+    }
 
     // Validate all 5 tones present
     const missing = toneKeys.filter(k => !captions[k]);
@@ -440,16 +462,17 @@ Respond with ONLY valid JSON, no markdown:
 
 function generateDemoCaptions(items, platform = 'reel') {
   const count = items.length;
+  const s = count === 1 ? '' : 's';
   const filenames = items.map(it => it.filename || '').filter(f => f && !f.startsWith('Demo'));
   const hint = filenames.length > 0 ? filenames[0].replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ') : 'moments';
   const tag = platform === 'short' ? '#YouTubeShorts' : '#InstagramReels';
 
   return {
-    engaging:      `✨ ${count} frames of pure magic capturing ${hint} and so much more! Every second hits different. Which moment is your absolute favorite? Drop it below! 👇 ${tag} #PhotoMontage #ContentCreator #ViralContent`,
-    professional:  `A carefully curated visual compilation of ${count} photographs showcasing ${hint}. Each frame selected for composition and narrative impact within this cohesive short-form presentation. ${tag} #Photography #VisualStorytelling`,
-    witty:         `POV: you picked ${count} photos and now you are basically a film director. Someone get this person an award already. No big deal. 🎬 ${tag} #AccidentalFilmmaker #MainCharacterEnergy #ContentLife`,
-    inspirational: `Every photograph holds a story waiting to be told. These ${count} moments remind us that beauty exists in ${hint} and in the courage to capture it. ✨ ${tag} #LiveInspired #ChaseMoments`,
-    storyteller:   `So I was going through my camera roll and found these ${count} gems. Each one brought back a wave of memories — especially ${hint}. Had to share. 📸 ${tag} #BehindTheScenes #RealMoments`
+    engaging:      `✨ ${count} frame${s} of pure magic capturing ${hint} and so much more! Every second hits different. Which moment is your absolute favorite? Drop it below! 👇 ${tag} #PhotoMontage #ContentCreator #ViralContent`,
+    professional:  `A carefully curated visual compilation of ${count} photograph${s} showcasing ${hint}. Each frame selected for composition and narrative impact within this cohesive short-form presentation. ${tag} #Photography #VisualStorytelling`,
+    witty:         `POV: you picked ${count} photo${s} and now you are basically a film director. Someone get this person an award already. No big deal. 🎬 ${tag} #AccidentalFilmmaker #MainCharacterEnergy #ContentLife`,
+    inspirational: `Every photograph holds a story waiting to be told. These ${count} moment${s} remind us that beauty exists in ${hint} and in the courage to capture it. ✨ ${tag} #LiveInspired #ChaseMoments`,
+    storyteller:   `So I was going through my camera roll and found ${count === 1 ? 'this gem' : `these ${count} gems`}. Each one brought back a wave of memories — especially ${hint}. Had to share. 📸 ${tag} #BehindTheScenes #RealMoments`
   };
 }
 
